@@ -1,0 +1,29 @@
+# Copy this file to config.toml (which is gitignored) and edit it:
+#   cp config.example.toml config.toml
+
+[location]
+# Replace these placeholders with your own coordinates (decimal degrees).
+# The script exits if either is missing.
+lat = 0.0
+lon = 0.0
+
+[comfort]
+# All temperatures are in °F. Any key left out here falls back to the
+# default shown.
+
+# Below this outdoor temperature: close windows, run the heat.
+cold = 55
+# Lowest outdoor temperature for opening the windows.
+open_min = 60
+# Highest outdoor temperature for opening the windows; above it, use fans.
+open_max = 75
+# Above this outdoor temperature: close windows, run the AC.
+hot = 82
+
+# Dew point must be below this to open the windows (dry enough).
+dry_dew = 60
+# Above this dew point it's muggy: close windows, run the AC.
+muggy_dew = 65
+
+# How many hours of the hourly forecast to scan for upcoming changes.
+lookahead_hours = 12
