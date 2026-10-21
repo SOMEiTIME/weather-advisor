@@ -8,7 +8,9 @@ Weather comes from [Open-Meteo](https://open-meteo.com).
 
 ## Modes
 
-Conditions are checked in this order; the first match wins.
+Conditions are checked in this order; the first match wins. Temperature and dew
+point are rounded to whole degrees first, so the numbers shown always match the
+decision.
 
 | Mode      | Condition                                          | Recommendation                       |
 |-----------|----------------------------------------------------|--------------------------------------|

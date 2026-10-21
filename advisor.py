@@ -86,7 +86,7 @@ def upcoming_changes(forecast, mode, c):
     hourly = forecast["hourly"]
     now = forecast["current"]["time"]
     hours = [
-        (t, temp, dew)
+        (t, round(temp), round(dew))
         for t, temp, dew in zip(hourly["time"], hourly["temperature_2m"], hourly["dew_point_2m"])
         if t > now and temp is not None and dew is not None
     ][: int(c["lookahead_hours"])]
@@ -142,7 +142,8 @@ def main():
 
     forecast = fetch_forecast(lat, lon)
     current = forecast["current"]
-    temp, dew = current["temperature_2m"], current["dew_point_2m"]
+    # Classify on whole degrees so the decision matches the rounded values shown.
+    temp, dew = round(current["temperature_2m"]), round(current["dew_point_2m"])
     mode = classify(temp, dew, comfort)
     changes = upcoming_changes(forecast, mode, comfort)
     summary = build_summary(temp, dew, mode, changes, comfort["lookahead_hours"])
