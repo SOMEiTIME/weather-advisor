@@ -38,13 +38,17 @@ The script also suggests an outfit, judged on the "feels like" temperature
 If feels-like swings by `layer_swing` (20°F) or more within the lookahead, it adds
 a layering line, e.g. `Layer up: feels like 38°F now, 62°F at 3 PM`.
 
-If the chance of rain reaches `rain_chance` (50%) at any hour in the lookahead, the
+If the chance of rain reaches `rain_chance` (50%) at any hour in the next `soon_hours` (3), the
 outfit adds a rain jacket at the peak hour, e.g. `Wear: pants, coat · rain jacket (70%
 at 3 PM)`.
 
-If the UV index reaches `uv_min` (3) at any hour in the lookahead, it adds sunscreen
+If the UV index reaches `uv_min` (3) at any hour in the next `soon_hours`, it adds sunscreen
 at the peak hour, e.g. `sunscreen (UV 7 at 1 PM)`. It's never flagged overnight,
 when UV is 0.
+
+Rain and sunscreen only look `soon_hours` ahead (the current hour plus the next
+three), unlike layering, which uses the full lookahead. That keeps a distant forecast
+from flagging them, or sending a push, hours early.
 
 Rain or sunscreen turning on triggers a push; turning off does not (see State).
 

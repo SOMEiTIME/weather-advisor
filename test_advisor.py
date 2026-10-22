@@ -152,6 +152,18 @@ class OutfitAdviceTest(unittest.TestCase):
         self.assertEqual(a.key, "mild+rain")
         self.assertEqual(advisor.wear_lines(a, "F"), ["Wear: pants, t-shirt · rain jacket (70% at 3 PM)"])
 
+    def test_rain_and_sun_only_count_soon(self):
+        # The window is the current hour plus the next 3 (here 13:00-16:00); 17:00 is too far out.
+        a = self.advice(rain=[0, 0, 0, 0, 90, 0], uv=[0, 0, 0, 0, 8, 0])
+        self.assertEqual((a.rain, a.sun, a.key), (None, None, "mild"))
+        a = self.advice(rain=[0, 0, 0, 90, 0, 0], uv=[0, 0, 0, 8, 0, 0])
+        self.assertEqual(a.key, "mild+rain+sun")
+
+    def test_soon_hours_is_configurable(self):
+        f = forecast(60, 40, [(60, 40)] * 6, rain=[0, 0, 0, 0, 90, 0])
+        self.assertIsNone(advisor.outfit_advice(f, O, 12).rain)
+        self.assertIsNotNone(advisor.outfit_advice(f, {**O, "soon_hours": 4}, 12).rain)
+
     def test_rain_below_threshold_or_missing_is_left_out(self):
         self.assertIsNone(self.advice(rain=[49] * 6).rain)
         self.assertEqual(self.advice(rain=[None, None, 60, None, None, None]).rain, ("2026-10-21T15:00", 60))
