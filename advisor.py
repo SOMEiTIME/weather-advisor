@@ -27,7 +27,7 @@ DEFAULTS = {
     "lookahead_hours": 12,
 }
 
-# Clothing thresholds on the feels-like temperature (°F), plus the swing that triggers layering the rain chance that calls for rain gear, and the UV index that calls for sunscreen.
+# Clothing thresholds on the feels-like temperature (°F), plus the swing that triggers layering the rain chance that calls for rain gear, the UV index that calls for sunscreen, and how soon those two count.
 CLOTHING_DEFAULTS = {
     "too_cold": 0.0,
     "hat_gloves_below": 35.0,
@@ -37,6 +37,7 @@ CLOTHING_DEFAULTS = {
     "layer_swing": 20.0,
     "rain_chance": 50,
     "uv_min": 3.0,
+    "soon_hours": 3,
 }
 
 OUTFITS = {
@@ -184,8 +185,8 @@ def notification(temp, dew, mode, changes, c, unit):
 
 class Outfit(NamedTuple):
     tier: str
-    rain: tuple | None  # (time, chance %) at the peak chance of rain in the lookahead
-    sun: tuple | None  # (time, UV index) at the peak UV in the lookahead
+    rain: tuple | None  # (time, chance %) at the peak chance of rain in the next few hours
+    sun: tuple | None  # (time, UV index) at the peak UV in the next few hours
     layers: tuple | None  # two (when, feels-like °F) points, lowest and highest, in time order
 
     @property
@@ -237,8 +238,11 @@ def outfit_advice(forecast, o, lookahead):
     layers = None
     if hi[1] - lo[1] >= o["layer_swing"]:
         layers = tuple(sorted((lo, hi), key=points.index))
-    rain = peak(hourly_window(forecast, "precipitation_probability", lookahead), o["rain_chance"])
-    sun = peak(hourly_window(forecast, "uv_index", lookahead), o["uv_min"])
+    # Rain and sun only count soon: the current hour plus the next soon_hours, so a distant
+    # forecast doesn't flag them (and push) hours early.
+    soon = int(o["soon_hours"]) + 1
+    rain = peak(hourly_window(forecast, "precipitation_probability", soon), o["rain_chance"])
+    sun = peak(hourly_window(forecast, "uv_index", soon), o["uv_min"])
     return Outfit(outfit_tier(feels, o), rain, sun, layers)
 
 
