@@ -4,6 +4,7 @@
 import json
 import os
 import sys
+import time
 import tomllib
 import urllib.parse
 import urllib.request
@@ -25,6 +26,7 @@ DEFAULTS = {
     "dry_dew": 60.0,
     "muggy_dew": 65.0,
     "lookahead_hours": 12,
+    "push_cooldown_hours": 3,
 }
 
 # Clothing thresholds on the feels-like temperature (°F), plus the swing that triggers layering the rain chance that calls for rain gear, the UV index that calls for sunscreen, and how soon those two count.
@@ -276,12 +278,21 @@ def build_summary(temp, dew, mode, changes, lookahead):
 
 
 def read_last_state():
-    """Return (mode, outfit key) from the state file; the outfit key is None in the older mode-only format."""
+    """Return (mode, outfit key, pushed_at) from the state file.
+
+    The outfit key is None in the oldest mode-only format, and pushed_at (epoch seconds of the
+    last push) is None before timestamps were saved.
+    """
     try:
-        mode, _, outfit = STATE_PATH.read_text().strip().partition("|")
+        mode, outfit, pushed_at, *_ = [*STATE_PATH.read_text().strip().split("|"), "", ""]
     except FileNotFoundError:
-        return None, None
-    return mode, outfit or None
+        return None, None, None
+    return mode, outfit or None, int(pushed_at) if pushed_at.isdigit() else None
+
+
+def write_state(mode, outfit_key, pushed_at):
+    fields = [mode, outfit_key] + ([str(int(pushed_at))] if pushed_at is not None else [])
+    STATE_PATH.write_text("|".join(fields) + "\n")
 
 
 def worth_pushing(last_state, mode, outfit):
@@ -290,7 +301,7 @@ def worth_pushing(last_state, mode, outfit):
     Dropping them ("sunscreen off at 6 PM") isn't news, but it still updates the saved
     state so they push again next time they turn on.
     """
-    last_mode, last_key = last_state
+    last_mode, last_key, _ = last_state
     if last_key is None:  # no state yet, or the older mode-only format
         return True
     last_tier, *last_gear = last_key.split("+")
@@ -335,13 +346,25 @@ def main():
         print(f"\n{title}\n{body}")
 
     last_state = read_last_state()
-    pushed = worth_pushing(last_state, mode, outfit)
-    if pushed:
+    now = time.time()
+    pushed_at = last_state[2]
+    due = worth_pushing(last_state, mode, outfit)
+    # A due push waits out the cooldown. The saved state stays put, so if things flip back to
+    # what was last pushed there is nothing to send; otherwise the current state goes out later.
+    cooldown = comfort["push_cooldown_hours"] * 3600
+    cooling = due and pushed_at is not None and 0 <= now - pushed_at < cooldown
+    if due and not cooling:
         for dest, (title, body) in notifications.items():
             push(dest, title, body)
-    if (mode, outfit.key) != last_state:
-        STATE_PATH.write_text(f"{mode}|{outfit.key}\n")
-    print(f"{'Pushed to ntfy' if pushed else 'No push'} (mode {mode}, outfit {outfit.key}).")
+        write_state(mode, outfit.key, now)
+        print(f"Pushed to ntfy (mode {mode}, outfit {outfit.key}).")
+    elif cooling:
+        print(f"Holding the push (mode {mode}, outfit {outfit.key}); last push was under {comfort['push_cooldown_hours']}h ago.")
+    else:
+        # Nothing to announce, but keep the state current (e.g. rain ending) without resetting the cooldown.
+        if (mode, outfit.key) != last_state[:2]:
+            write_state(mode, outfit.key, pushed_at)
+        print(f"No push (mode {mode}, outfit {outfit.key}).")
 
 
 if __name__ == "__main__":
