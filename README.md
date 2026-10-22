@@ -21,6 +21,25 @@ decision.
 | `fan`     | temp > `open_max`                                    | 🌀 Fans on       | Use fans                            |
 | `closed`  | anything else                                        | 🏠 Close up      | Keep windows closed, no HVAC needed |
 
+## What to wear
+
+The script also suggests an outfit, judged on the "feels like" temperature
+(wind chill and humidity included), rounded to whole degrees:
+
+| Feels like | Wear                              |
+|------------|-----------------------------------|
+| < `too_cold` (0°F) | way too cold, stay in if you can |
+| < `hat_gloves_below` (35°F) | pants, coat, hat, gloves |
+| < `coat_below` (45°F) | pants, coat                |
+| < `sweater_below` (60°F) | pants, sweater          |
+| < `shorts_min` (75°F) | pants, t-shirt             |
+| otherwise  | shorts, t-shirt                   |
+
+If feels-like swings by `layer_swing` (20°F) or more within the lookahead, it adds
+a layering line, e.g. `Layer up: feels like 38°F now, 62°F at 3 PM`. The outfit
+shows on the console and as a second line of each notification. These settings
+live in a `[clothing]` section of `config.toml`; any you leave out use the defaults.
+
 ## Notifications
 
 Each notification is short: the mode as the title, then a one-line body with the

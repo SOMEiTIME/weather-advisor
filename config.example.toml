@@ -30,3 +30,22 @@ muggy_dew = 65
 
 # How many hours of the hourly forecast to scan for upcoming changes.
 lookahead_hours = 12
+
+[clothing]
+# What to wear, judged on the "feels like" temperature (°F), which includes wind
+# chill and humidity. Any key left out here falls back to the default shown.
+
+# Below this feels-like temperature it's way too cold: stay in if you can.
+too_cold = 0
+# Below this: pants, coat, hat, gloves.
+hat_gloves_below = 35
+# Below this: pants, coat.
+coat_below = 45
+# Below this: pants, sweater. At or above it: pants, t-shirt.
+sweater_below = 60
+# At or above this: shorts, t-shirt.
+shorts_min = 75
+
+# If feels-like swings by at least this many degrees within the lookahead,
+# suggest layering.
+layer_swing = 20
