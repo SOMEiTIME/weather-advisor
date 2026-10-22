@@ -165,16 +165,13 @@ re-push. Delete the file to force a push on the next run.
 Pushes are also rate-limited by `push_cooldown_hours` (4). A change that happens within
 that long of the last push waits, and the saved state is left alone while it does. If
 things flip back to what you were last told (a feels-like hovering at a tier boundary),
-nothing is sent. Otherwise, once the cooldown ends, the current state goes out. In a year
-of past weather (hourly checks), this cut pushes from about 4.7 a day to about 3.2, and
-the busiest day from 13 to 6.
+nothing is sent. Otherwise, once the cooldown ends, the current state goes out.
 
 Optionally, set `quiet_start` and `quiet_end` (local hours, e.g. 22 and 6) to hold pushes
 overnight. They work like the cooldown: nothing is sent during quiet hours, and at the
 end the current state goes out only if it differs from what you were last told. Quiet
 hours are off unless you set both. The hour comes from the forecast's local time, so it
-doesn't depend on the machine's timezone. On the noisiest weeks of a year of past
-weather, 10 PM to 6 AM cut pushes by about 15-30%.
+doesn't depend on the machine's timezone.
 
 A fresh CI runner has no state file, so it will push on every run.
 
