@@ -27,7 +27,7 @@ DEFAULTS = {
     "lookahead_hours": 12,
 }
 
-# Clothing thresholds on the feels-like temperature (°F), plus the swing that triggers layering and the rain chance that calls for rain gear.
+# Clothing thresholds on the feels-like temperature (°F), plus the swing that triggers layering the rain chance that calls for rain gear, and the UV index that calls for sunscreen.
 CLOTHING_DEFAULTS = {
     "too_cold": 0.0,
     "hat_gloves_below": 35.0,
@@ -36,6 +36,7 @@ CLOTHING_DEFAULTS = {
     "shorts_min": 75.0,
     "layer_swing": 20.0,
     "rain_chance": 50,
+    "uv_min": 3.0,
 }
 
 OUTFITS = {
@@ -93,7 +94,7 @@ def fetch_forecast(lat, lon):
         "latitude": lat,
         "longitude": lon,
         "current": "temperature_2m,dew_point_2m,apparent_temperature",
-        "hourly": "temperature_2m,dew_point_2m,apparent_temperature,precipitation_probability",
+        "hourly": "temperature_2m,dew_point_2m,apparent_temperature,precipitation_probability,uv_index",
         "temperature_unit": "fahrenheit",
         "timezone": "auto",
         "forecast_days": 2,
@@ -184,12 +185,13 @@ def notification(temp, dew, mode, changes, c, unit):
 class Outfit(NamedTuple):
     tier: str
     rain: tuple | None  # (time, chance %) at the peak chance of rain in the lookahead
+    sun: tuple | None  # (time, UV index) at the peak UV in the lookahead
     layers: tuple | None  # two (when, feels-like °F) points, lowest and highest, in time order
 
     @property
     def key(self):
-        """Identifies the outfit for change detection; the layering and rain numbers don't count."""
-        return self.tier + ("+rain" if self.rain else "")
+        """Identifies the outfit for change detection; the layering, rain, and UV numbers don't count."""
+        return self.tier + ("+rain" if self.rain else "") + ("+sun" if self.sun else "")
 
 
 def outfit_tier(feels, o):
@@ -236,7 +238,8 @@ def outfit_advice(forecast, o, lookahead):
     if hi[1] - lo[1] >= o["layer_swing"]:
         layers = tuple(sorted((lo, hi), key=points.index))
     rain = peak(hourly_window(forecast, "precipitation_probability", lookahead), o["rain_chance"])
-    return Outfit(outfit_tier(feels, o), rain, layers)
+    sun = peak(hourly_window(forecast, "uv_index", lookahead), o["uv_min"])
+    return Outfit(outfit_tier(feels, o), rain, sun, layers)
 
 
 def wear_lines(outfit, unit):
@@ -245,6 +248,9 @@ def wear_lines(outfit, unit):
     if outfit.rain:
         t, chance = outfit.rain
         items.append(f"rain jacket ({chance}% at {format_hour(t)})")
+    if outfit.sun:
+        t, uv = outfit.sun
+        items.append(f"sunscreen (UV {uv} at {format_hour(t)})")
     lines = ["Wear: " + " · ".join(items)]
     if outfit.layers:
         points = [f"{degrees(feels, unit)} {when if when == 'now' else 'at ' + when}" for when, feels in outfit.layers]
