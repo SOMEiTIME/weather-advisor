@@ -27,7 +27,9 @@ class ClassifyTest(unittest.TestCase):
     def test_modes_and_boundaries(self):
         cases = [
             (54, 40, "heat"),
-            (55, 40, "closed"),
+            (55, 40, "crack"),
+            (59, 40, "crack"),
+            (59, 60, "closed"),
             (60, 40, "windows"),
             (75, 59, "windows"),
             (70, 60, "closed"),
@@ -47,7 +49,7 @@ class UpcomingChangesTest(unittest.TestCase):
         changes = advisor.upcoming_changes(f, "windows", C)
         self.assertEqual(
             [(t[-5:], m, temp) for t, m, temp, _ in changes],
-            [("15:00", "closed", 59), ("16:00", "heat", 54)],
+            [("15:00", "crack", 59), ("16:00", "heat", 54)],
         )
 
     def test_respects_lookahead_and_skips_missing(self):

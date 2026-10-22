@@ -13,6 +13,9 @@ lon = 0.0
 
 # Below this outdoor temperature: close windows, run the heat.
 cold = 55
+# Lowest outdoor temperature for opening the windows a little (a crack). Between
+# this and open_min, if it's dry enough, the advice is to open them a little.
+crack_min = 55
 # Lowest outdoor temperature for opening the windows.
 open_min = 60
 # Highest outdoor temperature for opening the windows; above it, use fans.

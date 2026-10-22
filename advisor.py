@@ -17,6 +17,7 @@ NTFY_URL = "https://ntfy.sh/"
 
 DEFAULTS = {
     "cold": 55.0,
+    "crack_min": 55.0,
     "open_min": 60.0,
     "open_max": 75.0,
     "hot": 82.0,
@@ -29,6 +30,7 @@ ACTIONS = {
     "heat": "Close windows, run the heat",
     "ac": "Close windows, run the AC",
     "windows": "Open the windows",
+    "crack": "Open the windows a little",
     "fan": "Use fans",
     "closed": "Keep windows closed, no HVAC needed",
 }
@@ -76,6 +78,8 @@ def classify(temp, dew, c):
         return "ac"
     if c["open_min"] <= temp <= c["open_max"] and dew < c["dry_dew"]:
         return "windows"
+    if c["crack_min"] <= temp < c["open_min"] and dew < c["dry_dew"]:
+        return "crack"
     if temp > c["open_max"]:
         return "fan"
     return "closed"
