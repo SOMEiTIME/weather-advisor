@@ -27,6 +27,8 @@ DEFAULTS = {
     "muggy_dew": 65.0,
     "lookahead_hours": 12,
     "push_cooldown_hours": 3,
+    "quiet_start": None,  # hour (0-23, local) pushes pause from; None leaves quiet hours off
+    "quiet_end": None,  # hour (0-23, local) pushes resume at
 }
 
 # Clothing thresholds on the feels-like temperature (°F), plus the swing that triggers layering the rain chance that calls for rain gear, the UV index that calls for sunscreen, and how soon those two count.
@@ -88,6 +90,9 @@ def load_config():
         fail(f"missing {' and '.join(missing)} in [location]; {setup_hint}")
 
     comfort = {**DEFAULTS, **raw.get("comfort", {})}
+    quiet = [comfort["quiet_start"], comfort["quiet_end"]]
+    if any(h is not None for h in quiet) and not all(isinstance(h, int) and 0 <= h <= 23 for h in quiet):
+        fail("set both quiet_start and quiet_end in [comfort] to whole hours from 0 to 23.")
     clothing = {**CLOTHING_DEFAULTS, **raw.get("clothing", {})}
     return float(location["lat"]), float(location["lon"]), comfort, clothing
 
@@ -295,6 +300,14 @@ def write_state(mode, outfit_key, pushed_at):
     STATE_PATH.write_text("|".join(fields) + "\n")
 
 
+def in_quiet_hours(hour, c):
+    """True if hour (0-23, local) falls in [quiet_start, quiet_end), which may wrap past midnight."""
+    start, end = c["quiet_start"], c["quiet_end"]
+    if start is None or start == end:
+        return False
+    return start <= hour < end if start < end else hour >= start or hour < end
+
+
 def worth_pushing(last_state, mode, outfit):
     """Mode and tier changes push; rain and sunscreen only when they turn on.
 
@@ -349,17 +362,23 @@ def main():
     now = time.time()
     pushed_at = last_state[2]
     due = worth_pushing(last_state, mode, outfit)
-    # A due push waits out the cooldown. The saved state stays put, so if things flip back to
-    # what was last pushed there is nothing to send; otherwise the current state goes out later.
+    # A due push waits out quiet hours and the cooldown. The saved state stays put meanwhile, so
+    # if things flip back to what was last pushed there is nothing to send; otherwise the
+    # current state goes out later.
     cooldown = comfort["push_cooldown_hours"] * 3600
-    cooling = due and pushed_at is not None and 0 <= now - pushed_at < cooldown
-    if due and not cooling:
+    local_hour = datetime.fromisoformat(current["time"]).hour
+    holds = []
+    if in_quiet_hours(local_hour, comfort):
+        holds.append("quiet hours")
+    if pushed_at is not None and 0 <= now - pushed_at < cooldown:
+        holds.append(f"last push was under {comfort['push_cooldown_hours']}h ago")
+    if due and not holds:
         for dest, (title, body) in notifications.items():
             push(dest, title, body)
         write_state(mode, outfit.key, now)
         print(f"Pushed to ntfy (mode {mode}, outfit {outfit.key}).")
-    elif cooling:
-        print(f"Holding the push (mode {mode}, outfit {outfit.key}); last push was under {comfort['push_cooldown_hours']}h ago.")
+    elif due:
+        print(f"Holding the push (mode {mode}, outfit {outfit.key}): {' and '.join(holds)}.")
     else:
         # Nothing to announce, but keep the state current (e.g. rain ending) without resetting the cooldown.
         if (mode, outfit.key) != last_state[:2]:

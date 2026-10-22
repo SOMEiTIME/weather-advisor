@@ -35,6 +35,13 @@ lookahead_hours = 12
 # before the cooldown ends, nothing is sent, and otherwise the then-current state goes out.
 push_cooldown_hours = 3
 
+# Quiet hours: pushes that come due between these local hours (0-23) wait until the
+# end. Set both or neither; the window may wrap past midnight. If things flip back
+# before the quiet hours end, nothing is sent; otherwise the then-current state goes
+# out when they end. Left off unless you uncomment these.
+# quiet_start = 22
+# quiet_end = 6
+
 [clothing]
 # What to wear, judged on the "feels like" temperature (°F), which includes wind
 # chill and humidity. Any key left out here falls back to the default shown.
