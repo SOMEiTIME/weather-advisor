@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Recommend windows, fans, AC, or heat from the outdoor forecast and push changes via ntfy."""
+"""Recommend windows, fans, AC, heat, and what to wear from the outdoor forecast; push changes via ntfy."""
 
 import json
 import os
@@ -9,6 +9,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+from typing import NamedTuple
 
 CONFIG_PATH = Path(__file__).resolve().parent / "config.toml"
 STATE_PATH = Path.home() / ".weather_advisor_state"
@@ -24,6 +25,25 @@ DEFAULTS = {
     "dry_dew": 60.0,
     "muggy_dew": 65.0,
     "lookahead_hours": 12,
+}
+
+# Clothing thresholds on the feels-like temperature (°F), plus the swing that triggers layering.
+CLOTHING_DEFAULTS = {
+    "too_cold": 0.0,
+    "hat_gloves_below": 35.0,
+    "coat_below": 45.0,
+    "sweater_below": 60.0,
+    "shorts_min": 75.0,
+    "layer_swing": 20.0,
+}
+
+OUTFITS = {
+    "frigid": "way too cold, stay in if you can",
+    "freezing": "pants, coat, hat, gloves",
+    "cold": "pants, coat",
+    "cool": "pants, sweater",
+    "mild": "pants, t-shirt",
+    "warm": "shorts, t-shirt",
 }
 
 ACTIONS = {
@@ -63,15 +83,16 @@ def load_config():
         fail(f"missing {' and '.join(missing)} in [location]; {setup_hint}")
 
     comfort = {**DEFAULTS, **raw.get("comfort", {})}
-    return float(location["lat"]), float(location["lon"]), comfort
+    clothing = {**CLOTHING_DEFAULTS, **raw.get("clothing", {})}
+    return float(location["lat"]), float(location["lon"]), comfort, clothing
 
 
 def fetch_forecast(lat, lon):
     params = {
         "latitude": lat,
         "longitude": lon,
-        "current": "temperature_2m,dew_point_2m",
-        "hourly": "temperature_2m,dew_point_2m",
+        "current": "temperature_2m,dew_point_2m,apparent_temperature",
+        "hourly": "temperature_2m,dew_point_2m,apparent_temperature",
         "temperature_unit": "fahrenheit",
         "timezone": "auto",
         "forecast_days": 2,
@@ -159,6 +180,52 @@ def notification(temp, dew, mode, changes, c, unit):
     return title, " · ".join(parts)
 
 
+class Outfit(NamedTuple):
+    tier: str
+    layers: tuple | None  # two (when, feels-like °F) points, lowest and highest, in time order
+
+
+def outfit_tier(feels, o):
+    if feels < o["too_cold"]:
+        return "frigid"
+    if feels < o["hat_gloves_below"]:
+        return "freezing"
+    if feels < o["coat_below"]:
+        return "cold"
+    if feels < o["sweater_below"]:
+        return "cool"
+    if feels < o["shorts_min"]:
+        return "mild"
+    return "warm"
+
+
+def outfit_advice(forecast, o, lookahead):
+    feels = round(forecast["current"]["apparent_temperature"])
+    hourly = forecast["hourly"]
+    now = forecast["current"]["time"]
+    ahead = [
+        (format_hour(t), round(v))
+        for t, v in zip(hourly["time"], hourly["apparent_temperature"])
+        if t > now and v is not None
+    ][: int(lookahead)]
+    points = [("now", feels), *ahead]
+    # Order the coldest and warmest points by when they happen so the note reads in time order.
+    lo, hi = min(points, key=lambda p: p[1]), max(points, key=lambda p: p[1])
+    layers = None
+    if hi[1] - lo[1] >= o["layer_swing"]:
+        layers = tuple(sorted((lo, hi), key=points.index))
+    return Outfit(outfit_tier(feels, o), layers)
+
+
+def wear_lines(outfit, unit):
+    """Return the "Wear:" line, plus a layering line when feels-like swings a lot."""
+    lines = [f"Wear: {OUTFITS[outfit.tier]}"]
+    if outfit.layers:
+        points = [f"{degrees(feels, unit)} {when if when == 'now' else 'at ' + when}" for when, feels in outfit.layers]
+        lines.append(f"Layer up: feels like {points[0]}, {points[1]}")
+    return lines
+
+
 def build_summary(temp, dew, mode, changes, lookahead):
     lines = [f"Now: {degrees(temp, "F")}, dew point {degrees(dew, "F")} -> {ACTIONS[mode]}"]
     if changes:
@@ -192,7 +259,7 @@ def push(topic, title, body):
 
 
 def main():
-    lat, lon, comfort = load_config()
+    lat, lon, comfort, clothing = load_config()
     topic = os.environ.get("NTFY_TOPIC")
     if not topic:
         fail("NTFY_TOPIC is not set; export it to your ntfy topic name.")
@@ -203,13 +270,15 @@ def main():
     temp, dew = round(current["temperature_2m"]), round(current["dew_point_2m"])
     mode = classify(temp, dew, comfort)
     changes = upcoming_changes(forecast, mode, comfort)
+    outfit = outfit_advice(forecast, clothing, comfort["lookahead_hours"])
     print(build_summary(temp, dew, mode, changes, comfort["lookahead_hours"]))
+    print("\n" + "\n".join(wear_lines(outfit, "F")))
 
     # Short notification in each unit, keyed by the topic it goes to.
-    notifications = {
-        topic: notification(temp, dew, mode, changes, comfort, "F"),
-        f"{topic}-Metric": notification(temp, dew, mode, changes, comfort, "C"),
-    }
+    notifications = {}
+    for dest, unit in ((topic, "F"), (f"{topic}-Metric", "C")):
+        title, body = notification(temp, dew, mode, changes, comfort, unit)
+        notifications[dest] = (title, "\n".join([body, *wear_lines(outfit, unit)]))
     for title, body in notifications.values():
         print(f"\n{title}\n{body}")
 

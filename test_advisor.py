@@ -10,16 +10,26 @@ from unittest import mock
 import advisor
 
 C = advisor.DEFAULTS
+O = advisor.CLOTHING_DEFAULTS
 
 
-def forecast(current_temp, current_dew, hours):
-    """Build a fake Open-Meteo response; hours is a list of (temp, dew) starting at 13:00."""
+def forecast(current_temp, current_dew, hours, current_feels=None, feels=None):
+    """Build a fake Open-Meteo response; hours is a list of (temp, dew) starting at 13:00.
+
+    Feels-like defaults to the air temperature.
+    """
     return {
-        "current": {"time": "2026-10-21T12:00", "temperature_2m": current_temp, "dew_point_2m": current_dew},
+        "current": {
+            "time": "2026-10-21T12:00",
+            "temperature_2m": current_temp,
+            "dew_point_2m": current_dew,
+            "apparent_temperature": current_temp if current_feels is None else current_feels,
+        },
         "hourly": {
             "time": [f"2026-10-21T{13 + i:02d}:00" for i in range(len(hours))],
             "temperature_2m": [t for t, _ in hours],
             "dew_point_2m": [d for _, d in hours],
+            "apparent_temperature": feels if feels is not None else [t for t, _ in hours],
         },
     }
 
@@ -104,6 +114,53 @@ class NotificationTest(unittest.TestCase):
         self.assertEqual(advisor.notification(50, 30, "heat", [], C, "F")[0], "🔥 Heat on")
 
 
+class OutfitTierTest(unittest.TestCase):
+    def test_tiers_and_boundaries(self):
+        cases = [
+            (-1, "frigid"),
+            (0, "freezing"),
+            (34, "freezing"),
+            (35, "cold"),
+            (44, "cold"),
+            (45, "cool"),
+            (59, "cool"),
+            (60, "mild"),
+            (74, "mild"),
+            (75, "warm"),
+        ]
+        for feels, expected in cases:
+            with self.subTest(feels=feels):
+                self.assertEqual(advisor.outfit_tier(feels, O), expected)
+
+
+class OutfitAdviceTest(unittest.TestCase):
+    def advice(self, **kwargs):
+        hours = [(60, 40)] * 6
+        return advisor.outfit_advice(forecast(60, 40, hours, **kwargs), O, 12)
+
+    def test_plain_day_has_no_layering(self):
+        a = self.advice()
+        self.assertEqual((a.tier, a.layers), ("mild", None))
+        self.assertEqual(advisor.wear_lines(a, "F"), ["Wear: pants, t-shirt"])
+
+    def test_layering_when_feels_like_swings(self):
+        a = self.advice(current_feels=38, feels=[40, 50, 62, 58, 50, 45])
+        self.assertEqual(a.tier, "cold")
+        self.assertEqual(a.layers, (("now", 38), ("3 PM", 62)))
+        self.assertEqual(
+            advisor.wear_lines(a, "F"),
+            ["Wear: pants, coat", "Layer up: feels like 38°F now, 62°F at 3 PM"],
+        )
+        self.assertEqual(advisor.wear_lines(a, "C")[1], "Layer up: feels like 3°C now, 17°C at 3 PM")
+
+    def test_layering_orders_points_by_time(self):
+        a = self.advice(current_feels=60, feels=[50, 40, 45, 50, 55, 58])
+        self.assertEqual(a.layers, (("now", 60), ("2 PM", 40)))
+
+    def test_small_swing_is_not_layering(self):
+        self.assertIsNone(self.advice(current_feels=60, feels=[61, 65, 70, 75, 78, 79]).layers)
+
+
 class ConfigTest(unittest.TestCase):
     def load(self, text):
         with tempfile.TemporaryDirectory() as d:
@@ -113,10 +170,15 @@ class ConfigTest(unittest.TestCase):
                 return advisor.load_config()
 
     def test_missing_comfort_keys_use_defaults(self):
-        lat, lon, comfort = self.load("[location]\nlat = 1.5\nlon = -2.5\n[comfort]\nhot = 90\n")
+        lat, lon, comfort, clothing = self.load("[location]\nlat = 1.5\nlon = -2.5\n[comfort]\nhot = 90\n")
         self.assertEqual((lat, lon), (1.5, -2.5))
         self.assertEqual(comfort["hot"], 90)
         self.assertEqual(comfort["cold"], C["cold"])
+        self.assertEqual(clothing, O)
+
+    def test_clothing_overrides(self):
+        *_, clothing = self.load("[location]\nlat = 1\nlon = 2\n[clothing]\ncoat_below = 50\n")
+        self.assertEqual(clothing, {**O, "coat_below": 50})
 
     def test_missing_lat_lon_exits_with_setup_hint(self):
         with self.assertRaises(SystemExit) as cm:
@@ -147,7 +209,7 @@ class MainTest(unittest.TestCase):
         self.state = Path(tmp.name) / "state"
         for patch in (
             mock.patch.object(advisor, "STATE_PATH", self.state),
-            mock.patch.object(advisor, "load_config", return_value=(0.0, 0.0, C)),
+            mock.patch.object(advisor, "load_config", return_value=(0.0, 0.0, C, O)),
             mock.patch.object(advisor, "fetch_forecast", return_value=forecast(59.6, 40, [])),
             mock.patch.dict(os.environ, {"NTFY_TOPIC": "test-topic"}),
         ):
@@ -165,9 +227,10 @@ class MainTest(unittest.TestCase):
             [c.args[:2] for c in push.call_args_list],
             [("test-topic", "🪟 Open windows"), ("test-topic-Metric", "🪟 Open windows")],
         )
-        self.assertEqual(push.call_args_list[0].args[2], "60°F now · no change for 12h")
-        self.assertEqual(push.call_args_list[1].args[2], "16°C now · no change for 12h")
+        self.assertEqual(push.call_args_list[0].args[2], "60°F now · no change for 12h\nWear: pants, t-shirt")
+        self.assertEqual(push.call_args_list[1].args[2], "16°C now · no change for 12h\nWear: pants, t-shirt")
         self.assertIn("Now: 60°F", out)
+        self.assertIn("Wear: pants, t-shirt", out)
         self.assertEqual(self.state.read_text().strip(), "windows")
 
         push, out = self.run_main()
