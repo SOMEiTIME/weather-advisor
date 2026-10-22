@@ -49,3 +49,7 @@ shorts_min = 75
 # If feels-like swings by at least this many degrees within the lookahead,
 # suggest layering.
 layer_swing = 20
+
+# Chance of rain (%) at or above which the peak hour in the lookahead calls for a
+# rain jacket.
+rain_chance = 50

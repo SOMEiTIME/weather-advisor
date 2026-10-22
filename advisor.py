@@ -27,7 +27,7 @@ DEFAULTS = {
     "lookahead_hours": 12,
 }
 
-# Clothing thresholds on the feels-like temperature (°F), plus the swing that triggers layering.
+# Clothing thresholds on the feels-like temperature (°F), plus the swing that triggers layering and the rain chance that calls for rain gear.
 CLOTHING_DEFAULTS = {
     "too_cold": 0.0,
     "hat_gloves_below": 35.0,
@@ -35,6 +35,7 @@ CLOTHING_DEFAULTS = {
     "sweater_below": 60.0,
     "shorts_min": 75.0,
     "layer_swing": 20.0,
+    "rain_chance": 50,
 }
 
 OUTFITS = {
@@ -92,7 +93,7 @@ def fetch_forecast(lat, lon):
         "latitude": lat,
         "longitude": lon,
         "current": "temperature_2m,dew_point_2m,apparent_temperature",
-        "hourly": "temperature_2m,dew_point_2m,apparent_temperature",
+        "hourly": "temperature_2m,dew_point_2m,apparent_temperature,precipitation_probability",
         "temperature_unit": "fahrenheit",
         "timezone": "auto",
         "forecast_days": 2,
@@ -182,12 +183,13 @@ def notification(temp, dew, mode, changes, c, unit):
 
 class Outfit(NamedTuple):
     tier: str
+    rain: tuple | None  # (time, chance %) at the peak chance of rain in the lookahead
     layers: tuple | None  # two (when, feels-like °F) points, lowest and highest, in time order
 
     @property
     def key(self):
-        """Identifies the outfit for change detection; the layering note's numbers don't count."""
-        return self.tier
+        """Identifies the outfit for change detection; the layering and rain numbers don't count."""
+        return self.tier + ("+rain" if self.rain else "")
 
 
 def outfit_tier(feels, o):
@@ -204,27 +206,46 @@ def outfit_tier(feels, o):
     return "warm"
 
 
-def outfit_advice(forecast, o, lookahead):
-    feels = round(forecast["current"]["apparent_temperature"])
+def hourly_window(forecast, field, lookahead, after_now=False):
+    """Return (time, value) for the current hour (unless after_now) and the hours after it, within the lookahead."""
     hourly = forecast["hourly"]
     now = forecast["current"]["time"]
-    ahead = [
-        (format_hour(t), round(v))
-        for t, v in zip(hourly["time"], hourly["apparent_temperature"])
-        if t > now and v is not None
-    ][: int(lookahead)]
+    pairs = list(zip(hourly["time"], hourly[field]))
+    if after_now:
+        pairs = [(t, v) for t, v in pairs if t > now]
+    else:
+        pairs = pairs[max(sum(t <= now for t, _ in pairs) - 1, 0) :]
+    return [(t, v) for t, v in pairs[: int(lookahead)] if v is not None]
+
+
+def peak(window, minimum):
+    """Return the (time, rounded value) of the highest value in the window, if it reaches minimum."""
+    if not window:
+        return None
+    t, v = max(window, key=lambda pair: pair[1])
+    return (t, round(v)) if v >= minimum else None
+
+
+def outfit_advice(forecast, o, lookahead):
+    feels = round(forecast["current"]["apparent_temperature"])
+    ahead = [(format_hour(t), round(v)) for t, v in hourly_window(forecast, "apparent_temperature", lookahead, True)]
     points = [("now", feels), *ahead]
     # Order the coldest and warmest points by when they happen so the note reads in time order.
     lo, hi = min(points, key=lambda p: p[1]), max(points, key=lambda p: p[1])
     layers = None
     if hi[1] - lo[1] >= o["layer_swing"]:
         layers = tuple(sorted((lo, hi), key=points.index))
-    return Outfit(outfit_tier(feels, o), layers)
+    rain = peak(hourly_window(forecast, "precipitation_probability", lookahead), o["rain_chance"])
+    return Outfit(outfit_tier(feels, o), rain, layers)
 
 
 def wear_lines(outfit, unit):
     """Return the "Wear:" line, plus a layering line when feels-like swings a lot."""
-    lines = [f"Wear: {OUTFITS[outfit.tier]}"]
+    items = [OUTFITS[outfit.tier]]
+    if outfit.rain:
+        t, chance = outfit.rain
+        items.append(f"rain jacket ({chance}% at {format_hour(t)})")
+    lines = ["Wear: " + " · ".join(items)]
     if outfit.layers:
         points = [f"{degrees(feels, unit)} {when if when == 'now' else 'at ' + when}" for when, feels in outfit.layers]
         lines.append(f"Layer up: feels like {points[0]}, {points[1]}")
