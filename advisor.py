@@ -26,7 +26,7 @@ DEFAULTS = {
     "dry_dew": 60.0,
     "muggy_dew": 65.0,
     "lookahead_hours": 12,
-    "push_cooldown_hours": 3,
+    "push_cooldown_hours": 4,
     "quiet_start": None,  # hour (0-23, local) pushes pause from; None leaves quiet hours off
     "quiet_end": None,  # hour (0-23, local) pushes resume at
 }

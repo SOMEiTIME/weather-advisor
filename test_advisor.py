@@ -384,12 +384,13 @@ class MainTest(unittest.TestCase):
             self.assertIn("Holding the push", out)
             # Held pushes leave the state alone, so the cooldown still counts from the last real push.
             self.assertEqual(self.state.read_text().strip(), "windows|mild|1000000")
-            push, _ = self.run_main(hours_later=1)
-            push.assert_not_called()
-            push, _ = self.run_main(hours_later=1)
+            for _ in range(2):  # 2h and 3h in: still held
+                push, _ = self.run_main(hours_later=1)
+                push.assert_not_called()
+            push, _ = self.run_main(hours_later=1)  # 4h in: the cooldown is over
         self.assertEqual(push.call_count, 2)
         self.assertIn("Wear: pants, sweater", push.call_args_list[0].args[2])
-        self.assertEqual(self.state.read_text().strip(), "windows|cool|1010800")
+        self.assertEqual(self.state.read_text().strip(), "windows|cool|1014400")
 
     def test_a_flip_back_during_the_cooldown_sends_nothing(self):
         self.run_main()
