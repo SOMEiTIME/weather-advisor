@@ -40,6 +40,9 @@ Runs the same on a laptop, a Raspberry Pi, or a CI runner.
 
 2. Install the ntfy app on your phone and subscribe to a topic. Pick a long,
    hard-to-guess topic name, since anyone who knows it can read your messages.
+   Each notification goes out twice: in °F to your topic, and in °C to the same
+   topic with `-Metric` appended (e.g. `your-topic-name-Metric`). Subscribe to
+   whichever you want, or both.
 
 3. Set the topic in your environment (it is never read from a file):
 
