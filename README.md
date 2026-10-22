@@ -12,14 +12,37 @@ Conditions are checked in this order; the first match wins. Temperature and dew
 point are rounded to whole degrees first, so the numbers shown always match the
 decision.
 
-| Mode      | Condition                                          | Recommendation                       |
-|-----------|----------------------------------------------------|--------------------------------------|
-| `heat`    | temp < `cold`                                      | Close windows, run the heat          |
-| `ac`      | temp > `hot` or dew point > `muggy_dew`            | Close windows, run the AC            |
-| `windows` | `open_min` <= temp <= `open_max` and dew < `dry_dew` | Open the windows                   |
-| `crack`   | `crack_min` <= temp < `open_min` and dew < `dry_dew` | Open the windows a little            |
-| `fan`     | temp > `open_max`                                  | Use fans                             |
-| `closed`  | anything else                                      | Keep windows closed, no HVAC needed  |
+| Mode      | Condition                                            | Notification     | Recommendation (console)            |
+|-----------|------------------------------------------------------|------------------|-------------------------------------|
+| `heat`    | temp < `cold`                                        | 🔥 Heat on       | Close windows, run the heat         |
+| `ac`      | temp > `hot` or dew point > `muggy_dew`              | ❄️ AC on         | Close windows, run the AC           |
+| `windows` | `open_min` <= temp <= `open_max` and dew < `dry_dew` | 🪟 Open windows  | Open the windows                    |
+| `crack`   | `crack_min` <= temp < `open_min` and dew < `dry_dew` | 🪟 Open windows a little | Open the windows a little     |
+| `fan`     | temp > `open_max`                                    | 🌀 Fans on       | Use fans                            |
+| `closed`  | anything else                                        | 🏠 Close up      | Keep windows closed, no HVAC needed |
+
+## Notifications
+
+Each notification is short: the mode as the title, then a one-line body with the
+current temperature and the next two changes in the lookahead window.
+
+```
+🪟 Open windows
+69°F now · close up at 7 PM · heat on at 11 PM
+```
+
+The dew point only appears when it decided the mode: "muggy" when it triggers
+the AC, "humid" when it keeps the windows closed at an otherwise good
+temperature (at or above `crack_min`).
+
+```
+❄️ AC on
+72°F now, muggy (dew 67°F) · fans on at 9 PM
+```
+
+The same notification goes to your topic in °F and to your topic plus `-Metric`
+in °C. The console (and your cron log) still prints the full hour-by-hour
+timeline with dew points.
 
 ## Requirements
 
