@@ -17,6 +17,7 @@ NTFY_URL = "https://ntfy.sh"
 
 DEFAULTS = {
     "cold": 55.0,
+    "crack_min": 55.0,
     "open_min": 60.0,
     "open_max": 75.0,
     "hot": 82.0,
@@ -29,6 +30,7 @@ ACTIONS = {
     "heat": "Close windows, run the heat",
     "ac": "Close windows, run the AC",
     "windows": "Open the windows",
+    "crack": "Open the windows a little",
     "fan": "Use fans",
     "closed": "Keep windows closed, no HVAC needed",
 }
@@ -38,6 +40,7 @@ LABELS = {
     "heat": ("🔥", "heat on"),
     "ac": ("❄️", "AC on"),
     "windows": ("🪟", "open windows"),
+    "crack": ("🪟", "open windows a little"),
     "fan": ("🌀", "fans on"),
     "closed": ("🏠", "close up"),
 }
@@ -85,6 +88,8 @@ def classify(temp, dew, c):
         return "ac"
     if c["open_min"] <= temp <= c["open_max"] and dew < c["dry_dew"]:
         return "windows"
+    if c["crack_min"] <= temp < c["open_min"] and dew < c["dry_dew"]:
+        return "crack"
     if temp > c["open_max"]:
         return "fan"
     return "closed"
@@ -128,7 +133,7 @@ def dew_reason(mode, temp, dew, c):
     """Return "muggy" or "humid" when the dew point, not the temperature, decided the mode."""
     if mode == "ac" and dew > c["muggy_dew"] and temp <= c["hot"]:
         return "muggy"
-    if mode == "closed" and c["open_min"] <= temp <= c["open_max"]:
+    if mode == "closed" and c["crack_min"] <= temp <= c["open_max"]:
         return "humid"
     return None
 

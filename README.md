@@ -17,6 +17,7 @@ decision.
 | `heat`    | temp < `cold`                                        | 🔥 Heat on       | Close windows, run the heat         |
 | `ac`      | temp > `hot` or dew point > `muggy_dew`              | ❄️ AC on         | Close windows, run the AC           |
 | `windows` | `open_min` <= temp <= `open_max` and dew < `dry_dew` | 🪟 Open windows  | Open the windows                    |
+| `crack`   | `crack_min` <= temp < `open_min` and dew < `dry_dew` | 🪟 Open windows a little | Open the windows a little     |
 | `fan`     | temp > `open_max`                                    | 🌀 Fans on       | Use fans                            |
 | `closed`  | anything else                                        | 🏠 Close up      | Keep windows closed, no HVAC needed |
 
@@ -32,7 +33,7 @@ current temperature and the next two changes in the lookahead window.
 
 The dew point only appears when it decided the mode: "muggy" when it triggers
 the AC, "humid" when it keeps the windows closed at an otherwise good
-temperature.
+temperature (at or above `crack_min`).
 
 ```
 ❄️ AC on
@@ -88,6 +89,7 @@ Runs the same on a laptop, a Raspberry Pi, or a CI runner.
 | `[location] lat`             | required | Latitude in decimal degrees                              |
 | `[location] lon`             | required | Longitude in decimal degrees                             |
 | `[comfort] cold`             | 55       | Below this (°F): run the heat                            |
+| `[comfort] crack_min`        | 55       | Lowest temp (°F) for opening windows a little            |
 | `[comfort] open_min`         | 60       | Lowest temp (°F) for open windows                        |
 | `[comfort] open_max`         | 75       | Highest temp (°F) for open windows; above it, use fans   |
 | `[comfort] hot`              | 82       | Above this (°F): run the AC                              |

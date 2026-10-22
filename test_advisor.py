@@ -28,7 +28,9 @@ class ClassifyTest(unittest.TestCase):
     def test_modes_and_boundaries(self):
         cases = [
             (54, 40, "heat"),
-            (55, 40, "closed"),
+            (55, 40, "crack"),
+            (59, 40, "crack"),
+            (59, 60, "closed"),
             (60, 40, "windows"),
             (75, 59, "windows"),
             (70, 60, "closed"),
@@ -48,7 +50,7 @@ class UpcomingChangesTest(unittest.TestCase):
         changes = advisor.upcoming_changes(f, "windows", C)
         self.assertEqual(
             [(t[-5:], m, temp) for t, m, temp, _ in changes],
-            [("15:00", "closed", 59), ("16:00", "heat", 54)],
+            [("15:00", "crack", 59), ("16:00", "heat", 54)],
         )
 
     def test_respects_lookahead_and_skips_missing(self):
@@ -73,17 +75,17 @@ class DegreesTest(unittest.TestCase):
 class NotificationTest(unittest.TestCase):
     def test_shows_next_two_changes(self):
         changes = [
-            ("2026-10-21T19:00", "closed", 59, 41),
+            ("2026-10-21T19:00", "crack", 59, 41),
             ("2026-10-21T23:00", "heat", 54, 41),
             ("2026-10-22T02:00", "closed", 55, 41),
         ]
         self.assertEqual(
             advisor.notification(69, 43, "windows", changes, C, "F"),
-            ("🪟 Open windows", "69°F now · close up at 7 PM · heat on at 11 PM"),
+            ("🪟 Open windows", "69°F now · open windows a little at 7 PM · heat on at 11 PM"),
         )
         self.assertEqual(
             advisor.notification(69, 43, "windows", changes, C, "C")[1],
-            "21°C now · close up at 7 PM · heat on at 11 PM",
+            "21°C now · open windows a little at 7 PM · heat on at 11 PM",
         )
 
     def test_dew_point_only_when_it_decides(self):
