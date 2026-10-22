@@ -132,7 +132,7 @@ Runs the same on a laptop, a Raspberry Pi, or a CI runner.
 | `[comfort] dry_dew`          | 60       | Dew point (°F) must be below this to open windows        |
 | `[comfort] muggy_dew`        | 65       | Above this dew point (°F): run the AC                    |
 | `[comfort] lookahead_hours`  | 12       | Hours of forecast to scan for upcoming changes           |
-| `[comfort] push_cooldown_hours` | 3     | Minimum hours between pushes (see State)                 |
+| `[comfort] push_cooldown_hours` | 4     | Minimum hours between pushes (see State)                 |
 
 Missing `[comfort]` keys fall back to the defaults. If `lat` or `lon` is missing,
 the script exits and tells you to set up `config.toml`.
@@ -160,12 +160,12 @@ push, but the file is still updated so the next time it turns on, it pushes agai
 layering note's numbers don't count, so a shifting feels-like within a tier doesn't
 re-push. Delete the file to force a push on the next run.
 
-Pushes are also rate-limited by `push_cooldown_hours` (3). A change that happens within
+Pushes are also rate-limited by `push_cooldown_hours` (4). A change that happens within
 that long of the last push waits, and the saved state is left alone while it does. If
 things flip back to what you were last told (a feels-like hovering at a tier boundary),
 nothing is sent. Otherwise, once the cooldown ends, the current state goes out. In a year
-of past weather (hourly checks), this cut pushes from about 4.7 a day to about 3.7, and
-the busiest day from 13 to 8.
+of past weather (hourly checks), this cut pushes from about 4.7 a day to about 3.2, and
+the busiest day from 13 to 6.
 
 A fresh CI runner has no state file, so it will push on every run.
 

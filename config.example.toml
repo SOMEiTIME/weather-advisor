@@ -33,7 +33,7 @@ lookahead_hours = 12
 
 # Minimum hours between pushes. A change that happens sooner waits; if things flip back
 # before the cooldown ends, nothing is sent, and otherwise the then-current state goes out.
-push_cooldown_hours = 3
+push_cooldown_hours = 4
 
 [clothing]
 # What to wear, judged on the "feels like" temperature (°F), which includes wind

@@ -26,7 +26,7 @@ DEFAULTS = {
     "dry_dew": 60.0,
     "muggy_dew": 65.0,
     "lookahead_hours": 12,
-    "push_cooldown_hours": 3,
+    "push_cooldown_hours": 4,
 }
 
 # Clothing thresholds on the feels-like temperature (°F), plus the swing that triggers layering the rain chance that calls for rain gear, the UV index that calls for sunscreen, and how soon those two count.
