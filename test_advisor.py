@@ -13,10 +13,10 @@ C = advisor.DEFAULTS
 O = advisor.CLOTHING_DEFAULTS
 
 
-def forecast(current_temp, current_dew, hours, current_feels=None, feels=None):
+def forecast(current_temp, current_dew, hours, current_feels=None, feels=None, rain=None):
     """Build a fake Open-Meteo response; hours is a list of (temp, dew) starting at 13:00.
 
-    Feels-like defaults to the air temperature.
+    Feels-like defaults to the air temperature and the rain chance to zero.
     """
     return {
         "current": {
@@ -30,6 +30,7 @@ def forecast(current_temp, current_dew, hours, current_feels=None, feels=None):
             "temperature_2m": [t for t, _ in hours],
             "dew_point_2m": [d for _, d in hours],
             "apparent_temperature": feels if feels is not None else [t for t, _ in hours],
+            "precipitation_probability": rain if rain is not None else [0] * len(hours),
         },
     }
 
@@ -138,11 +139,22 @@ class OutfitAdviceTest(unittest.TestCase):
         hours = [(60, 40)] * 6
         return advisor.outfit_advice(forecast(60, 40, hours, **kwargs), O, 12)
 
-    def test_plain_day_has_no_layering(self):
+    def test_plain_day_has_no_extras(self):
         a = self.advice()
-        self.assertEqual((a.tier, a.layers), ("mild", None))
+        self.assertEqual((a.tier, a.rain, a.layers), ("mild", None, None))
         self.assertEqual(a.key, "mild")
         self.assertEqual(advisor.wear_lines(a, "F"), ["Wear: pants, t-shirt"])
+
+    def test_rain_uses_the_peak_hour(self):
+        a = self.advice(rain=[10, 40, 70, 60, 0, 0])
+        self.assertEqual(a.rain, ("2026-10-21T15:00", 70))
+        self.assertEqual(a.key, "mild+rain")
+        self.assertEqual(advisor.wear_lines(a, "F"), ["Wear: pants, t-shirt · rain jacket (70% at 3 PM)"])
+
+    def test_rain_below_threshold_or_missing_is_left_out(self):
+        self.assertIsNone(self.advice(rain=[49] * 6).rain)
+        self.assertEqual(self.advice(rain=[None, None, 60, None, None, None]).rain, ("2026-10-21T15:00", 60))
+        self.assertIsNone(self.advice(rain=[None] * 6).rain)
 
     def test_layering_when_feels_like_swings(self):
         a = self.advice(current_feels=38, feels=[40, 50, 62, 58, 50, 45])
@@ -246,6 +258,15 @@ class MainTest(unittest.TestCase):
         self.assertEqual(push.call_count, 2)
         self.assertIn("Wear: pants, sweater", push.call_args_list[0].args[2])
         self.assertEqual(self.state.read_text().strip(), "windows|cool")
+
+    def test_pushes_when_rain_is_added(self):
+        self.run_main()
+        wet = forecast(59.6, 40, [(60, 40)] * 3, rain=[0, 80, 0])
+        with mock.patch.object(advisor, "fetch_forecast", return_value=wet):
+            push, _ = self.run_main()
+        self.assertEqual(push.call_count, 2)
+        self.assertIn("rain jacket (80% at 2 PM)", push.call_args_list[0].args[2])
+        self.assertEqual(self.state.read_text().strip(), "windows|mild+rain")
 
     def test_older_mode_only_state_pushes_once(self):
         self.state.write_text("windows\n")

@@ -36,7 +36,13 @@ The script also suggests an outfit, judged on the "feels like" temperature
 | otherwise  | shorts, t-shirt                   |
 
 If feels-like swings by `layer_swing` (20°F) or more within the lookahead, it adds
-a layering line, e.g. `Layer up: feels like 38°F now, 62°F at 3 PM`. The outfit
+a layering line, e.g. `Layer up: feels like 38°F now, 62°F at 3 PM`.
+
+If the chance of rain reaches `rain_chance` (50%) at any hour in the lookahead, the
+outfit adds a rain jacket at the peak hour, e.g. `Wear: pants, coat · rain jacket (70%
+at 3 PM)`. Rain being added or dropped counts as an outfit change for pushes.
+
+The outfit
 shows on the console and as a second line of each notification, and a change of outfit
 tier triggers a push (see State). These settings
 live in a `[clothing]` section of `config.toml`; any you leave out use the defaults.
@@ -131,8 +137,8 @@ Example crontab entry that checks every 30 minutes:
 ## State
 
 The last window mode and outfit are saved in `~/.weather_advisor_state` (e.g.
-`windows|cool`). The script always prints the summary, but only pushes to ntfy when
-the mode or the outfit tier differs from the saved one, then updates the file. The
+`windows|cool+rain`). The script always prints the summary, but only pushes to ntfy when
+the mode or the outfit (tier and rain) differs from the saved one, then updates the file. The
 layering note's numbers don't count, so a shifting feels-like within a tier doesn't
 re-push. Delete the file to force a push on the next run.
 
