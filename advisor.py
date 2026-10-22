@@ -13,7 +13,7 @@ from pathlib import Path
 CONFIG_PATH = Path(__file__).resolve().parent / "config.toml"
 STATE_PATH = Path.home() / ".weather_advisor_state"
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
-NTFY_URL = "https://ntfy.sh/"
+NTFY_URL = "https://ntfy.sh"
 
 DEFAULTS = {
     "cold": 55.0,
@@ -31,6 +31,15 @@ ACTIONS = {
     "windows": "Open the windows",
     "fan": "Use fans",
     "closed": "Keep windows closed, no HVAC needed",
+}
+
+# Short (emoji, phrase) for notifications.
+LABELS = {
+    "heat": ("🔥", "heat on"),
+    "ac": ("❄️", "AC on"),
+    "windows": ("🪟", "open windows"),
+    "fan": ("🌀", "fans on"),
+    "closed": ("🏠", "close up"),
 }
 
 
@@ -100,9 +109,13 @@ def upcoming_changes(forecast, mode, c):
     return changes
 
 
-def format_time(iso):
+def format_hour(iso):
     dt = datetime.fromisoformat(iso)
-    return f"{dt:%a} {dt.hour % 12 or 12} {dt:%p}"
+    return f"{dt.hour % 12 or 12} {dt:%p}"
+
+
+def format_time(iso):
+    return f"{datetime.fromisoformat(iso):%a} {format_hour(iso)}"
 
 
 def degrees(deg_f, unit):
@@ -111,13 +124,43 @@ def degrees(deg_f, unit):
     return f"{value:.0f}°{unit}"
 
 
-def build_summary(temp, dew, mode, changes, lookahead, unit="F"):
-    lines = [f"Now: {degrees(temp, unit)}, dew point {degrees(dew, unit)} -> {ACTIONS[mode]}"]
+def dew_reason(mode, temp, dew, c):
+    """Return "muggy" or "humid" when the dew point, not the temperature, decided the mode."""
+    if mode == "ac" and dew > c["muggy_dew"] and temp <= c["hot"]:
+        return "muggy"
+    if mode == "closed" and c["open_min"] <= temp <= c["open_max"]:
+        return "humid"
+    return None
+
+
+def notification(temp, dew, mode, changes, c, unit):
+    """Return (title, body) for a short phone notification, e.g. ("🪟 Open windows", "69°F now · close up at 7 PM")."""
+    emoji, phrase = LABELS[mode]
+    title = f"{emoji} {phrase[0].upper()}{phrase[1:]}"
+
+    now = f"{degrees(temp, unit)} now"
+    reason = dew_reason(mode, temp, dew, c)
+    if reason:
+        now += f", {reason} (dew {degrees(dew, unit)})"
+
+    parts = [now]
+    for t, m, t_temp, t_dew in changes[:2]:
+        part = f"{LABELS[m][1]} at {format_hour(t)}"
+        if dew_reason(m, t_temp, t_dew, c):
+            part += f" (dew {degrees(t_dew, unit)})"
+        parts.append(part)
+    if not changes:
+        parts.append(f"no change for {c['lookahead_hours']}h")
+    return title, " · ".join(parts)
+
+
+def build_summary(temp, dew, mode, changes, lookahead):
+    lines = [f"Now: {degrees(temp, "F")}, dew point {degrees(dew, "F")} -> {ACTIONS[mode]}"]
     if changes:
         lines.append(f"Changes in the next {lookahead}h:")
         for t, m, t_temp, t_dew in changes:
             lines.append(
-                f"  {format_time(t)}: {ACTIONS[m]} ({degrees(t_temp, unit)}, dew {degrees(t_dew, unit)})"
+                f"  {format_time(t)}: {ACTIONS[m]} ({degrees(t_temp, "F")}, dew {degrees(t_dew, "F")})"
             )
     else:
         lines.append(f"No changes in the next {lookahead}h.")
@@ -132,10 +175,11 @@ def read_last_mode():
 
 
 def push(topic, title, body):
+    # JSON publishing keeps the emoji title in UTF-8; HTTP headers only allow Latin-1.
     req = urllib.request.Request(
-        NTFY_URL + urllib.parse.quote(topic),
-        data=body.encode("utf-8"),
-        headers={"Title": title},
+        NTFY_URL,
+        data=json.dumps({"topic": topic, "title": title, "message": body}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=30):
@@ -154,16 +198,19 @@ def main():
     temp, dew = round(current["temperature_2m"]), round(current["dew_point_2m"])
     mode = classify(temp, dew, comfort)
     changes = upcoming_changes(forecast, mode, comfort)
-    # Same summary in each unit, keyed by the topic it goes to.
-    summaries = {
-        topic: build_summary(temp, dew, mode, changes, comfort["lookahead_hours"], "F"),
-        f"{topic}-Metric": build_summary(temp, dew, mode, changes, comfort["lookahead_hours"], "C"),
+    print(build_summary(temp, dew, mode, changes, comfort["lookahead_hours"]))
+
+    # Short notification in each unit, keyed by the topic it goes to.
+    notifications = {
+        topic: notification(temp, dew, mode, changes, comfort, "F"),
+        f"{topic}-Metric": notification(temp, dew, mode, changes, comfort, "C"),
     }
-    print("\n\n".join(summaries.values()))
+    for title, body in notifications.values():
+        print(f"\n{title}\n{body}")
 
     if mode != read_last_mode():
-        for dest, summary in summaries.items():
-            push(dest, ACTIONS[mode], summary)
+        for dest, (title, body) in notifications.items():
+            push(dest, title, body)
         STATE_PATH.write_text(mode + "\n")
         print(f"Pushed to ntfy (mode changed to {mode}).")
     else:

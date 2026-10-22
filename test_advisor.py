@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import tempfile
 import unittest
@@ -69,6 +70,38 @@ class DegreesTest(unittest.TestCase):
         self.assertEqual(advisor.degrees(14, "C"), "-10°C")
 
 
+class NotificationTest(unittest.TestCase):
+    def test_shows_next_two_changes(self):
+        changes = [
+            ("2026-10-21T19:00", "closed", 59, 41),
+            ("2026-10-21T23:00", "heat", 54, 41),
+            ("2026-10-22T02:00", "closed", 55, 41),
+        ]
+        self.assertEqual(
+            advisor.notification(69, 43, "windows", changes, C, "F"),
+            ("🪟 Open windows", "69°F now · close up at 7 PM · heat on at 11 PM"),
+        )
+        self.assertEqual(
+            advisor.notification(69, 43, "windows", changes, C, "C")[1],
+            "21°C now · close up at 7 PM · heat on at 11 PM",
+        )
+
+    def test_dew_point_only_when_it_decides(self):
+        self.assertEqual(
+            advisor.notification(72, 67, "ac", [("2026-10-21T21:00", "fan", 77, 60)], C, "F"),
+            ("❄️ AC on", "72°F now, muggy (dew 67°F) · fans on at 9 PM"),
+        )
+        self.assertEqual(
+            advisor.notification(70, 62, "closed", [], C, "F"),
+            ("🏠 Close up", "70°F now, humid (dew 62°F) · no change for 12h"),
+        )
+        self.assertEqual(
+            advisor.notification(78, 50, "fan", [("2026-10-22T09:00", "ac", 70, 66)], C, "F")[1],
+            "78°F now · AC on at 9 AM (dew 66°F)",
+        )
+        self.assertEqual(advisor.notification(50, 30, "heat", [], C, "F")[0], "🔥 Heat on")
+
+
 class ConfigTest(unittest.TestCase):
     def load(self, text):
         with tempfile.TemporaryDirectory() as d:
@@ -88,6 +121,21 @@ class ConfigTest(unittest.TestCase):
             self.load("[location]\nlat = 1.5\n")
         self.assertIn("lon", str(cm.exception))
         self.assertIn("config.example.toml", str(cm.exception))
+
+
+class PushTest(unittest.TestCase):
+    def test_sends_utf8_json(self):
+        with mock.patch.object(advisor.urllib.request, "urlopen") as urlopen:
+            advisor.push("test-topic", "🪟 Open windows", "21°C now")
+        req = urlopen.call_args.args[0]
+        self.assertEqual(req.full_url, "https://ntfy.sh")
+        self.assertEqual(
+            json.loads(req.data.decode("utf-8")),
+            {"topic": "test-topic", "title": "🪟 Open windows", "message": "21°C now"},
+        )
+        # Every header must be sendable (http.client encodes them as Latin-1).
+        for value in req.header_items():
+            "".join(value).encode("latin-1")
 
 
 class MainTest(unittest.TestCase):
@@ -113,10 +161,10 @@ class MainTest(unittest.TestCase):
         push, out = self.run_main()
         self.assertEqual(
             [c.args[:2] for c in push.call_args_list],
-            [("test-topic", "Open the windows"), ("test-topic-Metric", "Open the windows")],
+            [("test-topic", "🪟 Open windows"), ("test-topic-Metric", "🪟 Open windows")],
         )
-        self.assertIn("Now: 60°F", push.call_args_list[0].args[2])
-        self.assertIn("Now: 16°C", push.call_args_list[1].args[2])
+        self.assertEqual(push.call_args_list[0].args[2], "60°F now · no change for 12h")
+        self.assertEqual(push.call_args_list[1].args[2], "16°C now · no change for 12h")
         self.assertIn("Now: 60°F", out)
         self.assertEqual(self.state.read_text().strip(), "windows")
 
