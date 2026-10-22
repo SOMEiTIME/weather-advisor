@@ -13,14 +13,14 @@ C = advisor.DEFAULTS
 O = advisor.CLOTHING_DEFAULTS
 
 
-def forecast(current_temp, current_dew, hours, current_feels=None, feels=None, rain=None, uv=None):
+def forecast(current_temp, current_dew, hours, current_feels=None, feels=None, rain=None, uv=None, now="2026-10-21T12:00"):
     """Build a fake Open-Meteo response; hours is a list of (temp, dew) starting at 13:00.
 
     Feels-like defaults to the air temperature the rain chance and UV to zero.
     """
     return {
         "current": {
-            "time": "2026-10-21T12:00",
+            "time": now,
             "temperature_2m": current_temp,
             "dew_point_2m": current_dew,
             "apparent_temperature": current_temp if current_feels is None else current_feels,
@@ -205,6 +205,20 @@ class OutfitAdviceTest(unittest.TestCase):
         self.assertIsNone(self.advice(current_feels=60, feels=[61, 65, 70, 75, 78, 79]).layers)
 
 
+class QuietHoursTest(unittest.TestCase):
+    def test_off_by_default(self):
+        self.assertFalse(any(advisor.in_quiet_hours(h, C) for h in range(24)))
+
+    def test_window_that_wraps_past_midnight(self):
+        c = {**C, "quiet_start": 22, "quiet_end": 6}
+        quiet = [h for h in range(24) if advisor.in_quiet_hours(h, c)]
+        self.assertEqual(quiet, [0, 1, 2, 3, 4, 5, 22, 23])
+
+    def test_window_within_a_day(self):
+        c = {**C, "quiet_start": 13, "quiet_end": 15}
+        self.assertEqual([h for h in range(24) if advisor.in_quiet_hours(h, c)], [13, 14])
+
+
 class ConfigTest(unittest.TestCase):
     def load(self, text):
         with tempfile.TemporaryDirectory() as d:
@@ -223,6 +237,14 @@ class ConfigTest(unittest.TestCase):
     def test_clothing_overrides(self):
         *_, clothing = self.load("[location]\nlat = 1\nlon = 2\n[clothing]\ncoat_below = 50\n")
         self.assertEqual(clothing, {**O, "coat_below": 50})
+
+    def test_quiet_hours_need_both_ends_as_hours(self):
+        head = "[location]\nlat = 1\nlon = 2\n[comfort]\n"
+        self.assertEqual(self.load(head + "quiet_start = 22\nquiet_end = 6\n")[2]["quiet_start"], 22)
+        for bad in ("quiet_start = 22\n", "quiet_end = 6\n", "quiet_start = 24\nquiet_end = 6\n", "quiet_start = 22\nquiet_end = 6.5\n"):
+            with self.subTest(bad=bad), self.assertRaises(SystemExit) as cm:
+                self.load(head + bad)
+            self.assertIn("quiet_start and quiet_end", str(cm.exception))
 
     def test_missing_lat_lon_exits_with_setup_hint(self):
         with self.assertRaises(SystemExit) as cm:
@@ -379,6 +401,30 @@ class MainTest(unittest.TestCase):
         push.assert_not_called()
         push, _ = self.run_main(hours_later=5)
         push.assert_not_called()
+
+    def test_quiet_hours_hold_a_push_until_they_end(self):
+        quiet = {**C, "quiet_start": 22, "quiet_end": 6}
+        self.run_main()  # noon: pushes "windows|mild"
+        cooler = lambda at: forecast(59.6, 40, [], current_feels=50, now=at)
+        with mock.patch.object(advisor, "load_config", return_value=(0.0, 0.0, quiet, O)):
+            with mock.patch.object(advisor, "fetch_forecast", return_value=cooler("2026-10-21T23:00")):
+                push, out = self.run_main(hours_later=11)
+                push.assert_not_called()
+                self.assertIn("quiet hours", out)
+                self.assertEqual(self.state.read_text().strip(), "windows|mild|1000000")
+            with mock.patch.object(advisor, "fetch_forecast", return_value=cooler("2026-10-22T06:00")):
+                push, _ = self.run_main(hours_later=7)
+        self.assertEqual(push.call_count, 2)
+        self.assertIn("Wear: pants, sweater", push.call_args_list[0].args[2])
+
+    def test_quiet_hours_use_the_forecasts_local_time(self):
+        quiet = {**C, "quiet_start": 22, "quiet_end": 6}
+        late = forecast(59.6, 40, [], now="2026-10-21T22:15")
+        with mock.patch.object(advisor, "load_config", return_value=(0.0, 0.0, quiet, O)):
+            with mock.patch.object(advisor, "fetch_forecast", return_value=late):
+                push, _ = self.run_main()
+        push.assert_not_called()
+        self.assertFalse(self.state.exists())
 
     def test_cooldown_ignores_a_clock_that_went_backwards(self):
         self.run_main()
