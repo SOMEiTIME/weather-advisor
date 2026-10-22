@@ -184,6 +184,11 @@ class Outfit(NamedTuple):
     tier: str
     layers: tuple | None  # two (when, feels-like °F) points, lowest and highest, in time order
 
+    @property
+    def key(self):
+        """Identifies the outfit for change detection; the layering note's numbers don't count."""
+        return self.tier
+
 
 def outfit_tier(feels, o):
     if feels < o["too_cold"]:
@@ -239,11 +244,13 @@ def build_summary(temp, dew, mode, changes, lookahead):
     return "\n".join(lines)
 
 
-def read_last_mode():
+def read_last_state():
+    """Return (mode, outfit key) from the state file; the outfit key is None in the older mode-only format."""
     try:
-        return STATE_PATH.read_text().strip()
+        mode, _, outfit = STATE_PATH.read_text().strip().partition("|")
     except FileNotFoundError:
-        return None
+        return None, None
+    return mode, outfit or None
 
 
 def push(topic, title, body):
@@ -282,13 +289,13 @@ def main():
     for title, body in notifications.values():
         print(f"\n{title}\n{body}")
 
-    if mode != read_last_mode():
+    if (mode, outfit.key) != read_last_state():
         for dest, (title, body) in notifications.items():
             push(dest, title, body)
-        STATE_PATH.write_text(mode + "\n")
-        print(f"Pushed to ntfy (mode changed to {mode}).")
+        STATE_PATH.write_text(f"{mode}|{outfit.key}\n")
+        print(f"Pushed to ntfy (mode {mode}, outfit {outfit.key}).")
     else:
-        print(f"Mode unchanged ({mode}); no push.")
+        print(f"Mode ({mode}) and outfit ({outfit.key}) unchanged; no push.")
 
 
 if __name__ == "__main__":

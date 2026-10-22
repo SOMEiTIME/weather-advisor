@@ -141,6 +141,7 @@ class OutfitAdviceTest(unittest.TestCase):
     def test_plain_day_has_no_layering(self):
         a = self.advice()
         self.assertEqual((a.tier, a.layers), ("mild", None))
+        self.assertEqual(a.key, "mild")
         self.assertEqual(advisor.wear_lines(a, "F"), ["Wear: pants, t-shirt"])
 
     def test_layering_when_feels_like_swings(self):
@@ -231,11 +232,26 @@ class MainTest(unittest.TestCase):
         self.assertEqual(push.call_args_list[1].args[2], "16°C now · no change for 12h\nWear: pants, t-shirt")
         self.assertIn("Now: 60°F", out)
         self.assertIn("Wear: pants, t-shirt", out)
-        self.assertEqual(self.state.read_text().strip(), "windows")
+        self.assertEqual(self.state.read_text().strip(), "windows|mild")
 
         push, out = self.run_main()
         push.assert_not_called()
         self.assertIn("no push", out)
+
+    def test_pushes_when_only_the_outfit_changes(self):
+        self.run_main()
+        cooler = forecast(59.6, 40, [], current_feels=50)
+        with mock.patch.object(advisor, "fetch_forecast", return_value=cooler):
+            push, _ = self.run_main()
+        self.assertEqual(push.call_count, 2)
+        self.assertIn("Wear: pants, sweater", push.call_args_list[0].args[2])
+        self.assertEqual(self.state.read_text().strip(), "windows|cool")
+
+    def test_older_mode_only_state_pushes_once(self):
+        self.state.write_text("windows\n")
+        push, _ = self.run_main()
+        self.assertEqual(push.call_count, 2)
+        self.assertEqual(self.state.read_text().strip(), "windows|mild")
 
     def test_missing_topic_exits(self):
         with mock.patch.dict(os.environ, {}, clear=True), self.assertRaises(SystemExit) as cm:
