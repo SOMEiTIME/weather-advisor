@@ -284,6 +284,20 @@ def read_last_state():
     return mode, outfit or None
 
 
+def worth_pushing(last_state, mode, outfit):
+    """Mode and tier changes push; rain and sunscreen only when they turn on.
+
+    Dropping them ("sunscreen off at 6 PM") isn't news, but it still updates the saved
+    state so they push again next time they turn on.
+    """
+    last_mode, last_key = last_state
+    if last_key is None:  # no state yet, or the older mode-only format
+        return True
+    last_tier, *last_gear = last_key.split("+")
+    gear = outfit.key.split("+")[1:]
+    return mode != last_mode or outfit.tier != last_tier or bool(set(gear) - set(last_gear))
+
+
 def push(topic, title, body):
     # JSON publishing keeps the emoji title in UTF-8; HTTP headers only allow Latin-1.
     req = urllib.request.Request(
@@ -320,13 +334,14 @@ def main():
     for title, body in notifications.values():
         print(f"\n{title}\n{body}")
 
-    if (mode, outfit.key) != read_last_state():
+    last_state = read_last_state()
+    pushed = worth_pushing(last_state, mode, outfit)
+    if pushed:
         for dest, (title, body) in notifications.items():
             push(dest, title, body)
+    if (mode, outfit.key) != last_state:
         STATE_PATH.write_text(f"{mode}|{outfit.key}\n")
-        print(f"Pushed to ntfy (mode {mode}, outfit {outfit.key}).")
-    else:
-        print(f"Mode ({mode}) and outfit ({outfit.key}) unchanged; no push.")
+    print(f"{'Pushed to ntfy' if pushed else 'No push'} (mode {mode}, outfit {outfit.key}).")
 
 
 if __name__ == "__main__":
