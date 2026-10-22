@@ -40,7 +40,13 @@ a layering line, e.g. `Layer up: feels like 38°F now, 62°F at 3 PM`.
 
 If the chance of rain reaches `rain_chance` (50%) at any hour in the lookahead, the
 outfit adds a rain jacket at the peak hour, e.g. `Wear: pants, coat · rain jacket (70%
-at 3 PM)`. Rain being added or dropped counts as an outfit change for pushes.
+at 3 PM)`.
+
+If the UV index reaches `uv_min` (3) at any hour in the lookahead, it adds sunscreen
+at the peak hour, e.g. `sunscreen (UV 7 at 1 PM)`. It's never flagged overnight,
+when UV is 0.
+
+Rain or sunscreen being added or dropped counts as an outfit change for pushes.
 
 The outfit
 shows on the console and as a second line of each notification, and a change of outfit
@@ -137,8 +143,8 @@ Example crontab entry that checks every 30 minutes:
 ## State
 
 The last window mode and outfit are saved in `~/.weather_advisor_state` (e.g.
-`windows|cool+rain`). The script always prints the summary, but only pushes to ntfy when
-the mode or the outfit (tier and rain) differs from the saved one, then updates the file. The
+`windows|cool+rain+sun`). The script always prints the summary, but only pushes to ntfy when
+the mode or the outfit (tier, rain, and sunscreen) differs from the saved one, then updates the file. The
 layering note's numbers don't count, so a shifting feels-like within a tier doesn't
 re-push. Delete the file to force a push on the next run.
 
