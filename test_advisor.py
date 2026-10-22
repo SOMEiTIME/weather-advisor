@@ -267,7 +267,7 @@ class MainTest(unittest.TestCase):
 
         push, out = self.run_main()
         push.assert_not_called()
-        self.assertIn("no push", out)
+        self.assertIn("No push", out)
 
     def test_pushes_when_only_the_outfit_changes(self):
         self.run_main()
@@ -295,6 +295,33 @@ class MainTest(unittest.TestCase):
         self.assertEqual(push.call_count, 2)
         self.assertIn("sunscreen (UV 6 at 2 PM)", push.call_args_list[0].args[2])
         self.assertEqual(self.state.read_text().strip(), "windows|mild+sun")
+
+    def test_rain_and_sunscreen_push_only_when_they_turn_on(self):
+        def run_with(**kwargs):
+            wx = forecast(59.6, 40, [(60, 40)] * 3, **kwargs)
+            with mock.patch.object(advisor, "fetch_forecast", return_value=wx):
+                return self.run_main()[0]
+
+        run_with(rain=[0, 80, 0], uv=[0, 6, 0])
+        self.assertEqual(self.state.read_text().strip(), "windows|mild+rain+sun")
+
+        # Rain and sunscreen ending: no push, but the saved state follows.
+        push = run_with()
+        push.assert_not_called()
+        self.assertEqual(self.state.read_text().strip(), "windows|mild")
+
+        # Back on: push again, once per kind of gear added.
+        self.assertEqual(run_with(uv=[0, 6, 0]).call_count, 2)
+        self.assertEqual(run_with(rain=[0, 80, 0], uv=[0, 6, 0]).call_count, 2)
+
+    def test_dropping_rain_while_the_tier_changes_still_pushes(self):
+        wet = forecast(59.6, 40, [(60, 40)] * 3, rain=[0, 80, 0])
+        with mock.patch.object(advisor, "fetch_forecast", return_value=wet):
+            self.run_main()
+        colder = forecast(59.6, 40, [(60, 40)] * 3, current_feels=50)
+        with mock.patch.object(advisor, "fetch_forecast", return_value=colder):
+            push, _ = self.run_main()
+        self.assertEqual(push.call_count, 2)
 
     def test_older_mode_only_state_pushes_once(self):
         self.state.write_text("windows\n")

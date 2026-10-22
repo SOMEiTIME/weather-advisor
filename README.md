@@ -46,7 +46,7 @@ If the UV index reaches `uv_min` (3) at any hour in the lookahead, it adds sunsc
 at the peak hour, e.g. `sunscreen (UV 7 at 1 PM)`. It's never flagged overnight,
 when UV is 0.
 
-Rain or sunscreen being added or dropped counts as an outfit change for pushes.
+Rain or sunscreen turning on triggers a push; turning off does not (see State).
 
 The outfit
 shows on the console and as a second line of each notification, and a change of outfit
@@ -143,8 +143,15 @@ Example crontab entry that checks every 30 minutes:
 ## State
 
 The last window mode and outfit are saved in `~/.weather_advisor_state` (e.g.
-`windows|cool+rain+sun`). The script always prints the summary, but only pushes to ntfy when
-the mode or the outfit (tier, rain, and sunscreen) differs from the saved one, then updates the file. The
+`windows|cool+rain+sun`). The script always prints the summary, but only pushes to ntfy
+when:
+
+- the window mode changes,
+- the outfit tier changes, or
+- rain or sunscreen turns on.
+
+Rain or sunscreen turning off is not news ("sunscreen off at 6 PM"), so it doesn't
+push, but the file is still updated so the next time it turns on, it pushes again. The
 layering note's numbers don't count, so a shifting feels-like within a tier doesn't
 re-push. Delete the file to force a push on the next run.
 
