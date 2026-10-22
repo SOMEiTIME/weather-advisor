@@ -105,12 +105,20 @@ def format_time(iso):
     return f"{dt:%a} {dt.hour % 12 or 12} {dt:%p}"
 
 
-def build_summary(temp, dew, mode, changes, lookahead):
-    lines = [f"Now: {temp:.0f}°F, dew point {dew:.0f}°F -> {ACTIONS[mode]}"]
+def degrees(deg_f, unit):
+    """Format a °F value as whole degrees in unit ("F" or "C")."""
+    value = (deg_f - 32) * 5 / 9 if unit == "C" else deg_f
+    return f"{value:.0f}°{unit}"
+
+
+def build_summary(temp, dew, mode, changes, lookahead, unit="F"):
+    lines = [f"Now: {degrees(temp, unit)}, dew point {degrees(dew, unit)} -> {ACTIONS[mode]}"]
     if changes:
         lines.append(f"Changes in the next {lookahead}h:")
         for t, m, t_temp, t_dew in changes:
-            lines.append(f"  {format_time(t)}: {ACTIONS[m]} ({t_temp:.0f}°F, dew {t_dew:.0f}°F)")
+            lines.append(
+                f"  {format_time(t)}: {ACTIONS[m]} ({degrees(t_temp, unit)}, dew {degrees(t_dew, unit)})"
+            )
     else:
         lines.append(f"No changes in the next {lookahead}h.")
     return "\n".join(lines)
@@ -146,11 +154,16 @@ def main():
     temp, dew = round(current["temperature_2m"]), round(current["dew_point_2m"])
     mode = classify(temp, dew, comfort)
     changes = upcoming_changes(forecast, mode, comfort)
-    summary = build_summary(temp, dew, mode, changes, comfort["lookahead_hours"])
-    print(summary)
+    # Same summary in each unit, keyed by the topic it goes to.
+    summaries = {
+        topic: build_summary(temp, dew, mode, changes, comfort["lookahead_hours"], "F"),
+        f"{topic}-Metric": build_summary(temp, dew, mode, changes, comfort["lookahead_hours"], "C"),
+    }
+    print("\n\n".join(summaries.values()))
 
     if mode != read_last_mode():
-        push(topic, ACTIONS[mode], summary)
+        for dest, summary in summaries.items():
+            push(dest, ACTIONS[mode], summary)
         STATE_PATH.write_text(mode + "\n")
         print(f"Pushed to ntfy (mode changed to {mode}).")
     else:

@@ -61,6 +61,14 @@ class FormatTimeTest(unittest.TestCase):
         self.assertEqual(advisor.format_time("2026-10-21T19:00"), "Wed 7 PM")
 
 
+class DegreesTest(unittest.TestCase):
+    def test_fahrenheit_and_celsius(self):
+        self.assertEqual(advisor.degrees(69, "F"), "69°F")
+        self.assertEqual(advisor.degrees(32, "C"), "0°C")
+        self.assertEqual(advisor.degrees(69, "C"), "21°C")
+        self.assertEqual(advisor.degrees(14, "C"), "-10°C")
+
+
 class ConfigTest(unittest.TestCase):
     def load(self, text):
         with tempfile.TemporaryDirectory() as d:
@@ -103,8 +111,12 @@ class MainTest(unittest.TestCase):
 
     def test_pushes_only_when_mode_changes(self):
         push, out = self.run_main()
-        push.assert_called_once()
-        self.assertEqual(push.call_args.args[:2], ("test-topic", "Open the windows"))
+        self.assertEqual(
+            [c.args[:2] for c in push.call_args_list],
+            [("test-topic", "Open the windows"), ("test-topic-Metric", "Open the windows")],
+        )
+        self.assertIn("Now: 60°F", push.call_args_list[0].args[2])
+        self.assertIn("Now: 16°C", push.call_args_list[1].args[2])
         self.assertIn("Now: 60°F", out)
         self.assertEqual(self.state.read_text().strip(), "windows")
 
