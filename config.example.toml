@@ -50,9 +50,13 @@ shorts_min = 75
 # suggest layering.
 layer_swing = 20
 
-# Chance of rain (%) at or above which the peak hour in the lookahead calls for a
-# rain jacket.
+# Chance of rain (%) at or above which the peak hour in the next soon_hours calls
+# for a rain jacket.
 rain_chance = 50
 
-# UV index at or above which the peak hour in the lookahead calls for sunscreen.
+# UV index at or above which the peak hour in the next soon_hours calls for sunscreen.
 uv_min = 3
+
+# Rain and sunscreen only count within this many hours (the current hour plus the
+# next ones), so a forecast far off doesn't flag them or send a push early.
+soon_hours = 3
