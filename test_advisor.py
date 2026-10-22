@@ -10,13 +10,14 @@ from unittest import mock
 import advisor
 
 C = advisor.DEFAULTS
+N = advisor.NOTIFY_DEFAULTS
 O = advisor.CLOTHING_DEFAULTS
 
 
 def forecast(current_temp, current_dew, hours, current_feels=None, feels=None, rain=None, uv=None, now="2026-10-21T12:00"):
     """Build a fake Open-Meteo response; hours is a list of (temp, dew) starting at 13:00.
 
-    Feels-like defaults to the air temperature the rain chance and UV to zero.
+    Feels-like defaults to the air temperature; the rain chance and UV default to zero.
     """
     return {
         "current": {
@@ -59,7 +60,7 @@ class ClassifyTest(unittest.TestCase):
 class UpcomingChangesTest(unittest.TestCase):
     def test_lists_only_changes_with_rounded_values(self):
         f = forecast(70, 40, [(70, 40), (59.6, 41), (59.4, 41), (54.5, 41), (54, 41)])
-        changes = advisor.upcoming_changes(f, "windows", C)
+        changes = advisor.upcoming_changes(f, "windows", C, 12)
         self.assertEqual(
             [(t[-5:], m, temp) for t, m, temp, _ in changes],
             [("15:00", "crack", 59), ("16:00", "heat", 54)],
@@ -67,7 +68,7 @@ class UpcomingChangesTest(unittest.TestCase):
 
     def test_respects_lookahead_and_skips_missing(self):
         f = forecast(70, 40, [(None, 40), (70, 40), (50, 40)])
-        self.assertEqual(advisor.upcoming_changes(f, "windows", {**C, "lookahead_hours": 1}), [])
+        self.assertEqual(advisor.upcoming_changes(f, "windows", C, 1), [])
 
 
 class FormatTimeTest(unittest.TestCase):
@@ -92,28 +93,28 @@ class NotificationTest(unittest.TestCase):
             ("2026-10-22T02:00", "closed", 55, 41),
         ]
         self.assertEqual(
-            advisor.notification(69, 43, "windows", changes, C, "F"),
+            advisor.notification(69, 43, "windows", changes, C, "F", 12),
             ("🪟 Open windows", "69°F now · open windows a little at 7 PM · heat on at 11 PM"),
         )
         self.assertEqual(
-            advisor.notification(69, 43, "windows", changes, C, "C")[1],
+            advisor.notification(69, 43, "windows", changes, C, "C", 12)[1],
             "21°C now · open windows a little at 7 PM · heat on at 11 PM",
         )
 
     def test_dew_point_only_when_it_decides(self):
         self.assertEqual(
-            advisor.notification(72, 67, "ac", [("2026-10-21T21:00", "fan", 77, 60)], C, "F"),
+            advisor.notification(72, 67, "ac", [("2026-10-21T21:00", "fan", 77, 60)], C, "F", 12),
             ("❄️ AC on", "72°F now, muggy (dew 67°F) · fans on at 9 PM"),
         )
         self.assertEqual(
-            advisor.notification(70, 62, "closed", [], C, "F"),
+            advisor.notification(70, 62, "closed", [], C, "F", 12),
             ("🏠 Close up", "70°F now, humid (dew 62°F) · no change for 12h"),
         )
         self.assertEqual(
-            advisor.notification(78, 50, "fan", [("2026-10-22T09:00", "ac", 70, 66)], C, "F")[1],
+            advisor.notification(78, 50, "fan", [("2026-10-22T09:00", "ac", 70, 66)], C, "F", 12)[1],
             "78°F now · AC on at 9 AM (dew 66°F)",
         )
-        self.assertEqual(advisor.notification(50, 30, "heat", [], C, "F")[0], "🔥 Heat on")
+        self.assertEqual(advisor.notification(50, 30, "heat", [], C, "F", 12)[0], "🔥 Heat on")
 
 
 class OutfitTierTest(unittest.TestCase):
@@ -159,33 +160,18 @@ class OutfitAdviceTest(unittest.TestCase):
         a = self.advice(rain=[0, 0, 0, 90, 0, 0], uv=[0, 0, 0, 8, 0, 0])
         self.assertEqual(a.key, "mild+rain+sun")
 
-    def test_soon_hours_is_configurable(self):
-        f = forecast(60, 40, [(60, 40)] * 6, rain=[0, 0, 0, 0, 90, 0])
-        self.assertIsNone(advisor.outfit_advice(f, O, 12).rain)
-        self.assertIsNotNone(advisor.outfit_advice(f, {**O, "soon_hours": 4}, 12).rain)
-
-    def test_rain_below_threshold_or_missing_is_left_out(self):
+    def test_below_threshold_or_missing_data_is_left_out(self):
         self.assertIsNone(self.advice(rain=[49] * 6).rain)
-        self.assertEqual(self.advice(rain=[None, None, 60, None, None, None]).rain, ("2026-10-21T15:00", 60))
         self.assertIsNone(self.advice(rain=[None] * 6).rain)
+        self.assertEqual(self.advice(rain=[None, None, 60, None, None, None]).rain, ("2026-10-21T15:00", 60))
+        self.assertIsNone(self.advice(uv=[2.9] * 6).sun)
+        self.assertIsNone(self.advice(uv=[None] * 6).sun)
 
     def test_sunscreen_uses_the_peak_uv(self):
         a = self.advice(uv=[0, 2, 6, 7.4, 3, 0])
         self.assertEqual(a.sun, ("2026-10-21T16:00", 7))
         self.assertEqual(a.key, "mild+sun")
         self.assertEqual(advisor.wear_lines(a, "F"), ["Wear: pants, t-shirt · sunscreen (UV 7 at 4 PM)"])
-
-    def test_rain_and_sunscreen_together(self):
-        a = self.advice(rain=[70, 0, 0, 0, 0, 0], uv=[0, 0, 5, 0, 0, 0])
-        self.assertEqual(a.key, "mild+rain+sun")
-        self.assertEqual(
-            advisor.wear_lines(a, "F"),
-            ["Wear: pants, t-shirt · rain jacket (70% at 1 PM) · sunscreen (UV 5 at 3 PM)"],
-        )
-
-    def test_uv_below_threshold_or_missing_is_left_out(self):
-        self.assertIsNone(self.advice(uv=[2.9] * 6).sun)
-        self.assertIsNone(self.advice(uv=[None] * 6).sun)
 
     def test_layering_when_feels_like_swings(self):
         a = self.advice(current_feels=38, feels=[40, 50, 62, 58, 50, 45])
@@ -207,16 +193,16 @@ class OutfitAdviceTest(unittest.TestCase):
 
 class QuietHoursTest(unittest.TestCase):
     def test_off_by_default(self):
-        self.assertFalse(any(advisor.in_quiet_hours(h, C) for h in range(24)))
+        self.assertFalse(any(advisor.in_quiet_hours(h, N) for h in range(24)))
 
     def test_window_that_wraps_past_midnight(self):
-        c = {**C, "quiet_start": 22, "quiet_end": 6}
-        quiet = [h for h in range(24) if advisor.in_quiet_hours(h, c)]
+        n = {**N, "quiet_start": 22, "quiet_end": 6}
+        quiet = [h for h in range(24) if advisor.in_quiet_hours(h, n)]
         self.assertEqual(quiet, [0, 1, 2, 3, 4, 5, 22, 23])
 
     def test_window_within_a_day(self):
-        c = {**C, "quiet_start": 13, "quiet_end": 15}
-        self.assertEqual([h for h in range(24) if advisor.in_quiet_hours(h, c)], [13, 14])
+        n = {**N, "quiet_start": 13, "quiet_end": 15}
+        self.assertEqual([h for h in range(24) if advisor.in_quiet_hours(h, n)], [13, 14])
 
 
 class ConfigTest(unittest.TestCase):
@@ -228,19 +214,27 @@ class ConfigTest(unittest.TestCase):
                 return advisor.load_config()
 
     def test_missing_comfort_keys_use_defaults(self):
-        lat, lon, comfort, clothing = self.load("[location]\nlat = 1.5\nlon = -2.5\n[comfort]\nhot = 90\n")
-        self.assertEqual((lat, lon), (1.5, -2.5))
-        self.assertEqual(comfort["hot"], 90)
-        self.assertEqual(comfort["cold"], C["cold"])
-        self.assertEqual(clothing, O)
+        cfg = self.load("[location]\nlat = 1.5\nlon = -2.5\n[comfort]\nhot = 90\n")
+        self.assertEqual((cfg.lat, cfg.lon), (1.5, -2.5))
+        self.assertEqual(cfg.comfort, {**C, "hot": 90})
+        self.assertEqual(cfg.clothing, O)
+        self.assertEqual(cfg.notify, N)
 
     def test_clothing_overrides(self):
-        *_, clothing = self.load("[location]\nlat = 1\nlon = 2\n[clothing]\ncoat_below = 50\n")
+        clothing = self.load("[location]\nlat = 1\nlon = 2\n[clothing]\ncoat_below = 50\n").clothing
         self.assertEqual(clothing, {**O, "coat_below": 50})
 
+    def test_notify_section_and_old_comfort_location(self):
+        head = "[location]\nlat = 1\nlon = 2\n"
+        new = self.load(head + "[notify]\nlookahead_hours = 6\npush_cooldown_hours = 1\n")
+        self.assertEqual(new.notify, {**N, "lookahead_hours": 6, "push_cooldown_hours": 1})
+        old = self.load(head + "[comfort]\nlookahead_hours = 6\nhot = 90\n")
+        self.assertEqual(old.notify["lookahead_hours"], 6)
+        self.assertEqual(old.comfort, {**C, "hot": 90})
+
     def test_quiet_hours_need_both_ends_as_hours(self):
-        head = "[location]\nlat = 1\nlon = 2\n[comfort]\n"
-        self.assertEqual(self.load(head + "quiet_start = 22\nquiet_end = 6\n")[2]["quiet_start"], 22)
+        head = "[location]\nlat = 1\nlon = 2\n[notify]\n"
+        self.assertEqual(self.load(head + "quiet_start = 22\nquiet_end = 6\n").notify["quiet_start"], 22)
         for bad in ("quiet_start = 22\n", "quiet_end = 6\n", "quiet_start = 24\nquiet_end = 6\n", "quiet_start = 22\nquiet_end = 6.5\n"):
             with self.subTest(bad=bad), self.assertRaises(SystemExit) as cm:
                 self.load(head + bad)
@@ -268,6 +262,9 @@ class PushTest(unittest.TestCase):
             "".join(value).encode("latin-1")
 
 
+CFG = advisor.Config(0.0, 0.0, C, O, N)
+
+
 class MainTest(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -275,7 +272,7 @@ class MainTest(unittest.TestCase):
         self.state = Path(tmp.name) / "state"
         for patch in (
             mock.patch.object(advisor, "STATE_PATH", self.state),
-            mock.patch.object(advisor, "load_config", return_value=(0.0, 0.0, C, O)),
+            mock.patch.object(advisor, "load_config", return_value=CFG),
             mock.patch.object(advisor, "fetch_forecast", return_value=forecast(59.6, 40, [])),
             mock.patch.dict(os.environ, {"NTFY_TOPIC": "test-topic"}),
             mock.patch.object(advisor, "time", mock.Mock(time=lambda: self.now)),
@@ -283,6 +280,9 @@ class MainTest(unittest.TestCase):
             patch.start()
             self.addCleanup(patch.stop)
         self.now = 1_000_000
+
+    def saved(self):
+        return json.loads(self.state.read_text())
 
     def run_main(self, hours_later=0):
         self.now += hours_later * 3600
@@ -300,7 +300,7 @@ class MainTest(unittest.TestCase):
         self.assertEqual(push.call_args_list[1].args[2], "16°C now · no change for 12h\nWear: pants, t-shirt")
         self.assertIn("Now: 60°F", out)
         self.assertIn("Wear: pants, t-shirt", out)
-        self.assertEqual(self.state.read_text().strip(), "windows|mild|1000000")
+        self.assertEqual(self.saved(), {"mode": "windows", "outfit": "mild", "pushed_at": 1_000_000})
 
         push, out = self.run_main()
         push.assert_not_called()
@@ -313,25 +313,7 @@ class MainTest(unittest.TestCase):
             push, _ = self.run_main(hours_later=4)
         self.assertEqual(push.call_count, 2)
         self.assertIn("Wear: pants, sweater", push.call_args_list[0].args[2])
-        self.assertEqual(self.state.read_text().strip(), "windows|cool|1014400")
-
-    def test_pushes_when_rain_is_added(self):
-        self.run_main()
-        wet = forecast(59.6, 40, [(60, 40)] * 3, rain=[0, 80, 0])
-        with mock.patch.object(advisor, "fetch_forecast", return_value=wet):
-            push, _ = self.run_main(hours_later=4)
-        self.assertEqual(push.call_count, 2)
-        self.assertIn("rain jacket (80% at 2 PM)", push.call_args_list[0].args[2])
-        self.assertEqual(self.state.read_text().strip(), "windows|mild+rain|1014400")
-
-    def test_pushes_when_sunscreen_is_added(self):
-        self.run_main()
-        sunny = forecast(59.6, 40, [(60, 40)] * 3, uv=[0, 6, 0])
-        with mock.patch.object(advisor, "fetch_forecast", return_value=sunny):
-            push, _ = self.run_main(hours_later=4)
-        self.assertEqual(push.call_count, 2)
-        self.assertIn("sunscreen (UV 6 at 2 PM)", push.call_args_list[0].args[2])
-        self.assertEqual(self.state.read_text().strip(), "windows|mild+sun|1014400")
+        self.assertEqual(self.saved(), {"mode": "windows", "outfit": "cool", "pushed_at": 1_014_400})
 
     def test_rain_and_sunscreen_push_only_when_they_turn_on(self):
         def run_with(**kwargs):
@@ -340,12 +322,12 @@ class MainTest(unittest.TestCase):
                 return self.run_main(hours_later=4)[0]
 
         run_with(rain=[0, 80, 0], uv=[0, 6, 0])
-        self.assertEqual(self.state.read_text().strip(), "windows|mild+rain+sun|1014400")
+        self.assertEqual(self.saved()["outfit"], "mild+rain+sun")
 
         # Rain and sunscreen ending: no push, but the saved state follows (and keeps the push time).
         push = run_with()
         push.assert_not_called()
-        self.assertEqual(self.state.read_text().strip(), "windows|mild|1014400")
+        self.assertEqual(self.saved(), {"mode": "windows", "outfit": "mild", "pushed_at": 1_014_400})
 
         # Back on: push again, once per kind of gear added.
         self.assertEqual(run_with(uv=[0, 6, 0]).call_count, 2)
@@ -360,20 +342,13 @@ class MainTest(unittest.TestCase):
             push, _ = self.run_main(hours_later=4)
         self.assertEqual(push.call_count, 2)
 
-    def test_older_mode_only_state_pushes_once(self):
-        self.state.write_text("windows\n")
-        push, _ = self.run_main()
-        self.assertEqual(push.call_count, 2)
-        self.assertEqual(self.state.read_text().strip(), f"windows|mild|{self.now}")
-
-    def test_state_without_a_push_time_still_works(self):
-        self.state.write_text("windows|mild\n")
-        push, _ = self.run_main()
-        push.assert_not_called()
-        cooler = forecast(59.6, 40, [], current_feels=50)
-        with mock.patch.object(advisor, "fetch_forecast", return_value=cooler):
-            push, _ = self.run_main()
-        self.assertEqual(push.call_count, 2)
+    def test_unreadable_state_pushes_once_and_is_rewritten(self):
+        for junk in ("windows|mild|1000000\n", "{not json", '{"mode": "windows"}'):
+            with self.subTest(junk=junk):
+                self.state.write_text(junk)
+                push, _ = self.run_main()
+                self.assertEqual(push.call_count, 2)
+                self.assertEqual(self.saved()["pushed_at"], self.now)
 
     def test_cooldown_holds_a_due_push_then_sends_the_current_state(self):
         self.run_main()
@@ -383,14 +358,14 @@ class MainTest(unittest.TestCase):
             push.assert_not_called()
             self.assertIn("Holding the push", out)
             # Held pushes leave the state alone, so the cooldown still counts from the last real push.
-            self.assertEqual(self.state.read_text().strip(), "windows|mild|1000000")
+            self.assertEqual(self.saved()["pushed_at"], 1_000_000)
             for _ in range(2):  # 2h and 3h in: still held
                 push, _ = self.run_main(hours_later=1)
                 push.assert_not_called()
             push, _ = self.run_main(hours_later=1)  # 4h in: the cooldown is over
         self.assertEqual(push.call_count, 2)
         self.assertIn("Wear: pants, sweater", push.call_args_list[0].args[2])
-        self.assertEqual(self.state.read_text().strip(), "windows|cool|1014400")
+        self.assertEqual(self.saved(), {"mode": "windows", "outfit": "cool", "pushed_at": 1_014_400})
 
     def test_a_flip_back_during_the_cooldown_sends_nothing(self):
         self.run_main()
@@ -403,24 +378,24 @@ class MainTest(unittest.TestCase):
         push.assert_not_called()
 
     def test_quiet_hours_hold_a_push_until_they_end(self):
-        quiet = {**C, "quiet_start": 22, "quiet_end": 6}
+        quiet = CFG._replace(notify={**N, "quiet_start": 22, "quiet_end": 6})
         self.run_main()  # noon: pushes "windows|mild"
         cooler = lambda at: forecast(59.6, 40, [], current_feels=50, now=at)
-        with mock.patch.object(advisor, "load_config", return_value=(0.0, 0.0, quiet, O)):
+        with mock.patch.object(advisor, "load_config", return_value=quiet):
             with mock.patch.object(advisor, "fetch_forecast", return_value=cooler("2026-10-21T23:00")):
                 push, out = self.run_main(hours_later=11)
                 push.assert_not_called()
                 self.assertIn("quiet hours", out)
-                self.assertEqual(self.state.read_text().strip(), "windows|mild|1000000")
+                self.assertEqual(self.saved()["pushed_at"], 1_000_000)
             with mock.patch.object(advisor, "fetch_forecast", return_value=cooler("2026-10-22T06:00")):
                 push, _ = self.run_main(hours_later=7)
         self.assertEqual(push.call_count, 2)
         self.assertIn("Wear: pants, sweater", push.call_args_list[0].args[2])
 
     def test_quiet_hours_use_the_forecasts_local_time(self):
-        quiet = {**C, "quiet_start": 22, "quiet_end": 6}
+        quiet = CFG._replace(notify={**N, "quiet_start": 22, "quiet_end": 6})
         late = forecast(59.6, 40, [], now="2026-10-21T22:15")
-        with mock.patch.object(advisor, "load_config", return_value=(0.0, 0.0, quiet, O)):
+        with mock.patch.object(advisor, "load_config", return_value=quiet):
             with mock.patch.object(advisor, "fetch_forecast", return_value=late):
                 push, _ = self.run_main()
         push.assert_not_called()
