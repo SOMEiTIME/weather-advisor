@@ -116,8 +116,6 @@ state stays put while it waits, so if things flip back to what you were last tol
 nothing is sent. Otherwise the current state goes out when the hold ends. Quiet hours
 use the forecast's local time, not the machine's.
 
-A fresh CI runner has no state file, so it pushes every run.
-
 ## Tests
 
 ```sh
@@ -126,6 +124,7 @@ python3 -m unittest
 
 ## Ideas
 
-- GitHub Actions on a schedule
+- GitHub Actions on a schedule (needs the state file kept between runs, or it
+  pushes every time)
 - Home Assistant
 - Alexa announcements
