@@ -263,6 +263,9 @@ class PushTest(unittest.TestCase):
 
 
 CFG = advisor.Config(0.0, 0.0, C, O, N)
+QUIET_CFG = CFG._replace(notify={**N, "quiet_start": 22, "quiet_end": 6})
+WINDOWS = forecast(59.6, 40, [])  # windows, outfit tier "mild"
+COOLER = forecast(59.6, 40, [], current_feels=50)  # same mode, outfit tier "cool"
 
 
 class MainTest(unittest.TestCase):
@@ -273,7 +276,6 @@ class MainTest(unittest.TestCase):
         for patch in (
             mock.patch.object(advisor, "STATE_PATH", self.state),
             mock.patch.object(advisor, "load_config", return_value=CFG),
-            mock.patch.object(advisor, "fetch_forecast", return_value=forecast(59.6, 40, [])),
             mock.patch.dict(os.environ, {"NTFY_TOPIC": "test-topic"}),
             mock.patch.object(advisor, "time", mock.Mock(time=lambda: self.now)),
         ):
@@ -284,13 +286,17 @@ class MainTest(unittest.TestCase):
     def saved(self):
         return json.loads(self.state.read_text())
 
-    def run_main(self, hours_later=0):
+    def run_main(self, hours_later=0, wx=None):
         self.now += hours_later * 3600
-        with mock.patch.object(advisor, "push") as push, redirect_stdout(io.StringIO()) as out:
+        with (
+            mock.patch.object(advisor, "push") as push,
+            mock.patch.object(advisor, "fetch_forecast", return_value=wx or WINDOWS),
+            redirect_stdout(io.StringIO()) as out,
+        ):
             advisor.main()
         return push, out.getvalue()
 
-    def test_pushes_only_when_mode_changes(self):
+    def test_pushes_once_then_waits_for_a_change(self):
         push, out = self.run_main()
         self.assertEqual(
             [c.args[:2] for c in push.call_args_list],
@@ -308,18 +314,14 @@ class MainTest(unittest.TestCase):
 
     def test_pushes_when_only_the_outfit_changes(self):
         self.run_main()
-        cooler = forecast(59.6, 40, [], current_feels=50)
-        with mock.patch.object(advisor, "fetch_forecast", return_value=cooler):
-            push, _ = self.run_main(hours_later=4)
+        push, _ = self.run_main(hours_later=4, wx=COOLER)
         self.assertEqual(push.call_count, 2)
         self.assertIn("Wear: pants, sweater", push.call_args_list[0].args[2])
         self.assertEqual(self.saved(), {"mode": "windows", "outfit": "cool", "pushed_at": 1_014_400})
 
     def test_rain_and_sunscreen_push_only_when_they_turn_on(self):
         def run_with(**kwargs):
-            wx = forecast(59.6, 40, [(60, 40)] * 3, **kwargs)
-            with mock.patch.object(advisor, "fetch_forecast", return_value=wx):
-                return self.run_main(hours_later=4)[0]
+            return self.run_main(hours_later=4, wx=forecast(59.6, 40, [(60, 40)] * 3, **kwargs))[0]
 
         run_with(rain=[0, 80, 0], uv=[0, 6, 0])
         self.assertEqual(self.saved()["outfit"], "mild+rain+sun")
@@ -334,12 +336,8 @@ class MainTest(unittest.TestCase):
         self.assertEqual(run_with(rain=[0, 80, 0], uv=[0, 6, 0]).call_count, 2)
 
     def test_dropping_rain_while_the_tier_changes_still_pushes(self):
-        wet = forecast(59.6, 40, [(60, 40)] * 3, rain=[0, 80, 0])
-        with mock.patch.object(advisor, "fetch_forecast", return_value=wet):
-            self.run_main()
-        colder = forecast(59.6, 40, [(60, 40)] * 3, current_feels=50)
-        with mock.patch.object(advisor, "fetch_forecast", return_value=colder):
-            push, _ = self.run_main(hours_later=4)
+        self.run_main(wx=forecast(59.6, 40, [(60, 40)] * 3, rain=[0, 80, 0]))
+        push, _ = self.run_main(hours_later=4, wx=forecast(59.6, 40, [(60, 40)] * 3, current_feels=50))
         self.assertEqual(push.call_count, 2)
 
     def test_unreadable_state_pushes_once_and_is_rewritten(self):
@@ -352,60 +350,48 @@ class MainTest(unittest.TestCase):
 
     def test_cooldown_holds_a_due_push_then_sends_the_current_state(self):
         self.run_main()
-        cooler = forecast(59.6, 40, [], current_feels=50)
-        with mock.patch.object(advisor, "fetch_forecast", return_value=cooler):
-            push, out = self.run_main(hours_later=1)
+        push, out = self.run_main(hours_later=1, wx=COOLER)
+        push.assert_not_called()
+        self.assertIn("Holding the push", out)
+        # Held pushes leave the state alone, so the cooldown still counts from the last real push.
+        self.assertEqual(self.saved()["pushed_at"], 1_000_000)
+        for _ in range(2):  # 2h and 3h in: still held
+            push, _ = self.run_main(hours_later=1, wx=COOLER)
             push.assert_not_called()
-            self.assertIn("Holding the push", out)
-            # Held pushes leave the state alone, so the cooldown still counts from the last real push.
-            self.assertEqual(self.saved()["pushed_at"], 1_000_000)
-            for _ in range(2):  # 2h and 3h in: still held
-                push, _ = self.run_main(hours_later=1)
-                push.assert_not_called()
-            push, _ = self.run_main(hours_later=1)  # 4h in: the cooldown is over
+        push, _ = self.run_main(hours_later=1, wx=COOLER)  # 4h in: the cooldown is over
         self.assertEqual(push.call_count, 2)
         self.assertIn("Wear: pants, sweater", push.call_args_list[0].args[2])
         self.assertEqual(self.saved(), {"mode": "windows", "outfit": "cool", "pushed_at": 1_014_400})
 
     def test_a_flip_back_during_the_cooldown_sends_nothing(self):
         self.run_main()
-        cooler = forecast(59.6, 40, [], current_feels=50)
-        with mock.patch.object(advisor, "fetch_forecast", return_value=cooler):
-            self.run_main(hours_later=1)  # held
+        self.run_main(hours_later=1, wx=COOLER)  # held
         push, _ = self.run_main(hours_later=1)  # back to what was last pushed
         push.assert_not_called()
         push, _ = self.run_main(hours_later=5)
         push.assert_not_called()
 
     def test_quiet_hours_hold_a_push_until_they_end(self):
-        quiet = CFG._replace(notify={**N, "quiet_start": 22, "quiet_end": 6})
-        self.run_main()  # noon: pushes "windows|mild"
+        self.run_main()  # noon: pushes windows, mild
         cooler = lambda at: forecast(59.6, 40, [], current_feels=50, now=at)
-        with mock.patch.object(advisor, "load_config", return_value=quiet):
-            with mock.patch.object(advisor, "fetch_forecast", return_value=cooler("2026-10-21T23:00")):
-                push, out = self.run_main(hours_later=11)
-                push.assert_not_called()
-                self.assertIn("quiet hours", out)
-                self.assertEqual(self.saved()["pushed_at"], 1_000_000)
-            with mock.patch.object(advisor, "fetch_forecast", return_value=cooler("2026-10-22T06:00")):
-                push, _ = self.run_main(hours_later=7)
+        with mock.patch.object(advisor, "load_config", return_value=QUIET_CFG):
+            push, out = self.run_main(hours_later=11, wx=cooler("2026-10-21T23:00"))
+            push.assert_not_called()
+            self.assertIn("quiet hours", out)
+            self.assertEqual(self.saved()["pushed_at"], 1_000_000)
+            push, _ = self.run_main(hours_later=7, wx=cooler("2026-10-22T06:00"))
         self.assertEqual(push.call_count, 2)
         self.assertIn("Wear: pants, sweater", push.call_args_list[0].args[2])
 
     def test_quiet_hours_use_the_forecasts_local_time(self):
-        quiet = CFG._replace(notify={**N, "quiet_start": 22, "quiet_end": 6})
-        late = forecast(59.6, 40, [], now="2026-10-21T22:15")
-        with mock.patch.object(advisor, "load_config", return_value=quiet):
-            with mock.patch.object(advisor, "fetch_forecast", return_value=late):
-                push, _ = self.run_main()
+        with mock.patch.object(advisor, "load_config", return_value=QUIET_CFG):
+            push, _ = self.run_main(wx=forecast(59.6, 40, [], now="2026-10-21T22:15"))
         push.assert_not_called()
         self.assertFalse(self.state.exists())
 
     def test_cooldown_ignores_a_clock_that_went_backwards(self):
         self.run_main()
-        cooler = forecast(59.6, 40, [], current_feels=50)
-        with mock.patch.object(advisor, "fetch_forecast", return_value=cooler):
-            push, _ = self.run_main(hours_later=-1)
+        push, _ = self.run_main(hours_later=-1, wx=COOLER)
         self.assertEqual(push.call_count, 2)
 
     def test_missing_topic_exits(self):

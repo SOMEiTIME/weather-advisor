@@ -34,9 +34,7 @@ NOTIFY_DEFAULTS = {
     "quiet_end": None,  # hour (0-23, local) pushes resume at
 }
 
-# Clothing thresholds on the feels-like temperature (°F), the swing that triggers layering,
-# the rain chance that calls for rain gear, the UV index that calls for sunscreen, and how soon
-# those two count.
+# Feels-like (°F) outfit thresholds, plus the triggers for layering, rain gear and sunscreen.
 CLOTHING_DEFAULTS = {
     "too_cold": 0.0,
     "hat_gloves_below": 35.0,
@@ -262,8 +260,7 @@ def outfit_advice(forecast, o, lookahead):
     layers = None
     if hi[1] - lo[1] >= o["layer_swing"]:
         layers = tuple(sorted((lo, hi), key=points.index))
-    # Rain and sun only count soon: the current hour plus the next soon_hours, so a distant
-    # forecast doesn't flag them (and push) hours early.
+    # Rain and sun look only at the current hour plus the next soon_hours.
     soon = int(o["soon_hours"]) + 1
     rain = peak(hourly_window(forecast, "precipitation_probability", soon), o["rain_chance"])
     sun = peak(hourly_window(forecast, "uv_index", soon), o["uv_min"])
@@ -297,7 +294,6 @@ def build_summary(temp, dew, mode, changes, lookahead):
     else:
         lines.append(f"No changes in the next {lookahead}h.")
     return "\n".join(lines)
-
 
 
 class State(NamedTuple):
@@ -376,14 +372,12 @@ def deliver(notifications, mode, outfit, local_hour, n):
     now = time.time()
     label = f"mode {mode}, outfit {outfit.key}"
     if not worth_pushing(state, mode, outfit):
-        # Nothing to announce, but keep the state current (e.g. rain ending) without resetting the cooldown.
+        # Keep the state current (e.g. rain ending) without resetting the cooldown.
         if (mode, outfit.key) != state[:2]:
             write_state(State(mode, outfit.key, state.pushed_at))
         print(f"No push ({label}).")
         return
-    # A due push waits out quiet hours and the cooldown. The saved state stays put meanwhile, so
-    # if things flip back to what was last pushed there is nothing to send; otherwise the
-    # current state goes out later.
+    # A held push leaves the state alone, so a flip back to what was last pushed sends nothing.
     reasons = hold_reasons(state, now, local_hour, n)
     if reasons:
         print(f"Holding the push ({label}): {' and '.join(reasons)}.")

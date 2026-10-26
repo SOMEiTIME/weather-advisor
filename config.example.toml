@@ -1,5 +1,6 @@
 # Copy this file to config.toml (which is gitignored) and edit it:
 #   cp config.example.toml config.toml
+# Any key left out uses the default shown.
 
 [location]
 # Replace these placeholders with your own coordinates (decimal degrees).
@@ -8,13 +9,11 @@ lat = 0.0
 lon = 0.0
 
 [comfort]
-# All temperatures are in °F. Any key left out here falls back to the
-# default shown.
+# All temperatures are in °F.
 
 # Below this outdoor temperature: close windows, run the heat.
 cold = 55
-# Lowest outdoor temperature for opening the windows a little (a crack). Between
-# this and open_min, if it's dry enough, the advice is to open them a little.
+# Lowest outdoor temperature for opening the windows a little (up to open_min).
 crack_min = 55
 # Lowest outdoor temperature for opening the windows.
 open_min = 60
@@ -33,7 +32,7 @@ muggy_dew = 65
 lookahead_hours = 12
 
 # Minimum hours between pushes. A change that comes sooner waits; if things flip back
-# before the cooldown ends, nothing is sent, otherwise the then-current state goes out.
+# before the cooldown ends, nothing is sent.
 push_cooldown_hours = 4
 
 # Quiet hours: pushes that come due between these local hours (0-23) wait until the
@@ -44,7 +43,7 @@ push_cooldown_hours = 4
 
 [clothing]
 # What to wear, judged on the "feels like" temperature (°F), which includes wind
-# chill and humidity. Any key left out here falls back to the default shown.
+# chill and humidity.
 
 # Below this feels-like temperature it's way too cold: stay in if you can.
 too_cold = 0
@@ -68,6 +67,5 @@ rain_chance = 50
 # UV index at or above which the peak hour in the next soon_hours calls for sunscreen.
 uv_min = 3
 
-# Rain and sunscreen only count within this many hours (the current hour plus the
-# next ones), so a forecast far off doesn't flag them or send a push early.
+# Rain and sunscreen only count in the current hour plus this many more.
 soon_hours = 3
