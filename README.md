@@ -121,10 +121,3 @@ use the forecast's local time, not the machine's.
 ```sh
 python3 -m unittest
 ```
-
-## Ideas
-
-- GitHub Actions on a schedule (needs the state file kept between runs, or it
-  pushes every time)
-- Home Assistant
-- Alexa announcements
